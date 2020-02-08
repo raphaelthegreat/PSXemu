@@ -89,10 +89,10 @@ struct DMAIRQReg {
 };
 
 // A class managing all reads, writes and functions to DMA
-class Interconnect;
+class Bus;
 class DMAController {
 public:
-	DMAController(Interconnect* inter);
+	DMAController(Bus* bus);
 
 	void start_dma(DMAChannels channel);
 	void dma_block_copy(DMAChannels channel);
@@ -113,5 +113,5 @@ public:
 	DMAIRQReg irq;
 	
 	DMAChannel channels[7];
-	Interconnect* inter;
+	Bus* bus;
 };

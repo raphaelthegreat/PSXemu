@@ -1,6 +1,5 @@
 #pragma once
 #include <cpu/cpu.h>
-#include <memory/interconnect.h>
 
 class Renderer;
 class PSX {

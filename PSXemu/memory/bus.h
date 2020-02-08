@@ -37,10 +37,10 @@ const Range TIMERS = Range(0x1f801100, 0x30);
 const Range DMA = Range(0x1f801080, 0x80);
 const Range GPU_RANGE = Range(0x1f801810, 8);
 
-class Interconnect {
+class Bus {
 public:
-	Interconnect(std::string bios_path, Renderer* renderer);
-	~Interconnect() = default;
+	Bus(std::string bios_path, Renderer* renderer);
+	~Bus() = default;
 
 	template <typename T = uint32_t>
 	T read(uint32_t addr);
@@ -68,7 +68,7 @@ public:
 };
 
 template<typename T>
-inline T Interconnect::read(uint32_t addr)
+inline T Bus::read(uint32_t addr)
 {
 	if (addr % sizeof(T) != 0)
 		panic("Unaligned read at address: 0x", addr);
@@ -113,7 +113,7 @@ inline T Interconnect::read(uint32_t addr)
 }
 
 template<typename T>
-inline void Interconnect::write(uint32_t addr, T data)
+inline void Bus::write(uint32_t addr, T data)
 {
 	if (addr % sizeof(T) != 0)
 		panic("Unaligned 32bit write to address: 0x", addr);

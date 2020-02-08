@@ -1,6 +1,6 @@
 #include "dma.h"
 #include <cpu/util.h>
-#include <memory/interconnect.h>
+#include <memory/bus.h>
 
 /* DMA Channel class implementation. */
 
@@ -90,10 +90,10 @@ void DMAChannel::set_block(uint32_t val)
 
 /* DMA Controller class implementation. */
 
-DMAController::DMAController(Interconnect* _inter)
+DMAController::DMAController(Bus* _bus)
 {
 	primary_control = 0x07654321;
-	inter = _inter;
+	bus = _bus;
 }
 
 void DMAController::start_dma(DMAChannels channel)
@@ -135,13 +135,13 @@ void DMAController::dma_block_copy(DMAChannels _channel)
 			else
 				panic("Unhandled DMA source channel: 0x", (uint32_t)_channel);
 			
-			inter->write<uint32_t>(addr, data);
+			bus->write(addr, data);
 		}
 		else {
-			uint32_t data = inter->read<uint32_t>(addr);
+			uint32_t data = bus->read(addr);
 
 			if (_channel == DMAChannels::GPU)
-				inter->gpu->write_gp0(data);
+				bus->gpu->write_gp0(data);
 			else
 				panic("Unhandled DMA source port!", "");
 		}
@@ -166,7 +166,7 @@ void DMAController::dma_list_copy(DMAChannels _channel)
 		panic("Attempted DMA linked lists copy on channel: 0x", (uint32_t)_channel);
 
 	while (true) {
-		uint32_t header = inter->read<uint32_t>(addr);
+		uint32_t header = bus->read(addr);
 		uint32_t count = header >> 24;
 
 		if (count > 0) {
@@ -176,11 +176,9 @@ void DMAController::dma_list_copy(DMAChannels _channel)
 		while (count > 0) {
 			addr = (addr + 4) & 0x1ffffc;
 			
-			
-			
-			uint32_t command = inter->read<uint32_t>(addr);
+			uint32_t command = bus->read(addr);
 			log("GPU command: 0x", command);
-			inter->gpu->write_gp0(command);
+			bus->gpu->write_gp0(command);
 			count--;
 		}
 

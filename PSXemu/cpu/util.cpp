@@ -1,5 +1,6 @@
 #include "util.h"
 #include <iostream>
+#include <bitset>
 
 uint32_t bit_range(uint32_t num, int start, int end)
 {

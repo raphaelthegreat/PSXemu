@@ -1,4 +1,4 @@
-#include "interconnect.h"
+#include "bus.h"
 #include <video/renderer.h>
 
 std::optional<uint32_t> Range::contains(uint32_t addr) const
@@ -9,7 +9,7 @@ std::optional<uint32_t> Range::contains(uint32_t addr) const
         return std::nullopt;
 }
 
-Interconnect::Interconnect(std::string bios_path, Renderer* renderer) :
+Bus::Bus(std::string bios_path, Renderer* renderer) :
     dma(this)
 {
     gl_renderer = renderer;
@@ -19,7 +19,7 @@ Interconnect::Interconnect(std::string bios_path, Renderer* renderer) :
     gpu = std::make_unique<GPU>(gl_renderer);
 }
 
-uint32_t Interconnect::mask_region(uint32_t addr)
+uint32_t Bus::mask_region(uint32_t addr)
 {
     uint32_t index = addr >> 29;
     return (addr & region_mask[index]);

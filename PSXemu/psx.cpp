@@ -1,5 +1,4 @@
 #include "psx.h"
-#include <video/renderer.h>
 
 PSX::PSX(Renderer* renderer)
 {
