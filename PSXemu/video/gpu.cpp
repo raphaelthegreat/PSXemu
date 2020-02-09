@@ -10,6 +10,34 @@ HorizontalRes HorizontalRes::from_bits(uint8_t h1, uint8_t h2)
 	return hr;
 }
 
+
+uint8_t VRAMLine::get4bit(uint32_t index)
+{
+	uint32_t i = std::floor(index / 2);
+	uint32_t b = index % 2;
+
+	return (data[i] & (0xf << 4 * b)) >> 4 * b;
+}
+
+uint8_t VRAMLine::get8bit(uint32_t index)
+{
+	uint32_t i = index;
+	return data[i];
+}
+
+uint16_t VRAMLine::get16bit(uint32_t index)
+{
+	uint32_t i = index;
+	return data[i] | (data[i + 1] << 8);
+}
+
+uint32_t VRAMLine::get24bit(uint32_t index)
+{
+	uint32_t i = std::floor(index / 3);
+	/* TODO: this will overflow if index = 682. */
+	return data[i] | (data[i + 1] << 8) | (data[i + 2] << 16);
+}
+
 /* GPU class implementation */
 
 GPU::GPU(Renderer* renderer)
@@ -46,9 +74,8 @@ GPU::GPU(Renderer* renderer)
 	display_horiz_end = 0xc00;
 	display_line_start = 0x10;
 	display_line_end = 0x100;
-	gp0_command = std::vector<uint32_t>();
-	gp0_remaining_words = 0;
-	gp0_handler = BIND(gp0_nop);
+	remaining_attribs = 0;
+	command_handler = BIND(gp0_nop);
 	image_load = false;
 
 	texture_window_x_mask = 0;
@@ -127,66 +154,94 @@ uint32_t GPU::get_read()
 	return 0;
 }
 
-void GPU::write_gp0(uint32_t data)
+void GPU::gp0_command(uint32_t data)
 {
-	if (gp0_remaining_words == 0) {
+	/* Handle a new GPU command. */
+	if (remaining_attribs == 0) {
 		GP0Command command = (GP0Command)bit_range(data, 24, 32);
 
 		std::pair<uint32_t, GP0Func> handler;
 
-		if (command == GP0Command::Nop)
+		/* Select the appropriate handler. */
+		switch (command) {
+		case GP0Command::Nop:
 			handler = std::make_pair(1, BIND(gp0_nop));
-		else if (command == GP0Command::Shaded_Quad)
+			break;
+		case GP0Command::Shaded_Quad:
 			handler = std::make_pair(8, BIND(gp0_shaded_quad));
-		else if (command == GP0Command::Shaded_Quad_Blend)
+			break;
+		case GP0Command::Shaded_Quad_Blend:
 			handler = std::make_pair(9, BIND(gp0_shaded_quad_blend));
-		else if (command == GP0Command::Shaded_Triangle)
+			break;
+		case GP0Command::Shaded_Triangle:
 			handler = std::make_pair(6, BIND(gp0_shaded_trig));
-		else if (command == GP0Command::Image_Load)
+			break;
+		case GP0Command::Image_Load:
 			handler = std::make_pair(3, BIND(gp0_image_load));
-		else if (command == GP0Command::Image_Store)
+			break;
+		case GP0Command::Image_Store:
 			handler = std::make_pair(3, BIND(gp0_image_store));
-		else if (command == GP0Command::Clear_Cache)
+			break;
+		case GP0Command::Clear_Cache:
 			handler = std::make_pair(1, BIND(gp0_clear_cache));
-		else if (command == GP0Command::Mono_Quad)
+			break;
+		case GP0Command::Mono_Quad:
 			handler = std::make_pair(5, BIND(gp0_mono_quad));
-		else if (command == GP0Command::Draw_Area_Bottom_Right)
+			break;
+		case GP0Command::Draw_Area_Bottom_Right:
 			handler = std::make_pair(1, BIND(gp0_draw_area_bottom_right));
-		else if (command == GP0Command::Draw_Area_Top_Left)
+			break;
+		case GP0Command::Draw_Area_Top_Left:
 			handler = std::make_pair(1, BIND(gp0_draw_area_top_left));
-		else if (command == GP0Command::Drawing_Offset)
+			break;
+		case GP0Command::Drawing_Offset:
 			handler = std::make_pair(1, BIND(gp0_drawing_offset));
-		else if (command == GP0Command::Draw_Mode_Setting)
+			break;
+		case GP0Command::Draw_Mode_Setting:
 			handler = std::make_pair(1, BIND(gp0_draw_mode));
-		else if (command == GP0Command::Texture_Window_Setting)
+			break;
+		case GP0Command::Texture_Window_Setting:
 			handler = std::make_pair(1, BIND(gp0_texture_window_setting));
-		else if (command == GP0Command::Mask_Bit_Setting)
+			break;
+		case GP0Command::Mask_Bit_Setting:
 			handler = std::make_pair(1, BIND(gp0_mask_bit_setting));
-		else
-			panic("Unhandled GP0 command: 0x", (uint32_t)command);
-		
-		gp0_remaining_words = handler.first;
-		gp0_handler = handler.second;
+			break;
+		default:
+			printf("Unhandled GPU command: 0x%x\n", (uint32_t)command);
+			exit(0);
+		}
 
-		gp0_command.clear();
+		remaining_attribs = handler.first;
+		command_handler = handler.second;
+
+		/* Prepare the fifo for a new set of data. */
+		command_fifo.clear();
 	}
 
-	gp0_remaining_words--;
+	/* If we are here it means that we received command attribs. */
+	remaining_attribs--;
 
+	/* Push attrib to command fifo. */
 	if (!image_load) {
-		gp0_command.push_back(data);
+		command_fifo.push_back(data);
 
-		if (gp0_remaining_words == 0)
-			gp0_handler();
+		/* Once we gether everything we need, execute the command. */
+		if (remaining_attribs == 0)
+			command_handler();
 	}
-	else {
-		if (gp0_remaining_words == 0)
+	else { /* Push pixel to texture buffer. */
+		buffer.push_data(data);
+		
+		/* Push the final image to the renderer to be drawn. */
+		if (remaining_attribs == 0) {
+			gl_renderer->push_image(buffer);
+			buffer.pixels.clear();
 			image_load = false;
+		}
 	}
-
 }
 
-void GPU::write_gp1(uint32_t data)
+void GPU::gp1_command(uint32_t data)
 {
 	GP1Command command = (GP1Command)bit_range(data, 24, 32);
 
@@ -222,14 +277,14 @@ void GPU::gp0_mono_quad()
 {
 	printf("Draw Mono Quad\n");
 
-	Color color = Color::from_gpu(gp0_command[0]);
+	Color color = Color::from_gpu(command_fifo[0]);
 	
 	Verts pos =
 	{
-		Pos2::from_gpu(gp0_command[1]),
-		Pos2::from_gpu(gp0_command[2]),
-		Pos2::from_gpu(gp0_command[3]),
-		Pos2::from_gpu(gp0_command[4]),
+		Pos2::from_gpu(command_fifo[1]),
+		Pos2::from_gpu(command_fifo[2]),
+		Pos2::from_gpu(command_fifo[3]),
+		Pos2::from_gpu(command_fifo[4]),
 	};
 
 	Colors colors = { color, color, color, color };
@@ -239,7 +294,7 @@ void GPU::gp0_mono_quad()
 void GPU::gp0_draw_mode()
 {
 	printf("GPU set draw mode\n");
-	uint32_t data = gp0_command[0];
+	uint32_t data = command_fifo[0];
 
 	status.page_base_x = bit_range(data, 0, 4);
 	status.page_base_y = get_bit(data, 4);
@@ -256,7 +311,7 @@ void GPU::gp0_draw_mode()
 void GPU::gp0_draw_area_top_left()
 {
 	printf("GPU draw area top left\n");
-	uint32_t data = gp0_command[0];
+	uint32_t data = command_fifo[0];
 
 	drawing_area_top = (uint16_t)bit_range(data, 10, 20);
 	drawing_area_left = (uint16_t)bit_range(data, 0, 10);
@@ -265,7 +320,7 @@ void GPU::gp0_draw_area_top_left()
 void GPU::gp0_draw_area_bottom_right()
 {
 	printf("GPU draw area bottom right\n");
-	uint32_t data = gp0_command[0];
+	uint32_t data = command_fifo[0];
 
 	drawing_area_bottom = (uint16_t)bit_range(data, 10, 20);
 	drawing_area_right = (uint16_t)bit_range(data, 0, 10);
@@ -274,7 +329,7 @@ void GPU::gp0_draw_area_bottom_right()
 void GPU::gp0_texture_window_setting()
 {
 	printf("GPU texture window setting\n");
-	uint32_t data = gp0_command[0];
+	uint32_t data = command_fifo[0];
 
 	texture_window_x_mask = bit_range(data, 0, 5);
 	texture_window_y_mask = bit_range(data, 5, 10);
@@ -286,7 +341,7 @@ void GPU::gp0_texture_window_setting()
 void GPU::gp0_drawing_offset()
 {
 	printf("GPU drawing offset\n");
-	uint32_t data = gp0_command[0];
+	uint32_t data = command_fifo[0];
 	
 	uint16_t x = (uint16_t)(data & 0x7ff);
 	uint16_t y = (uint16_t)((data >> 11) & 0x7ff);
@@ -301,7 +356,7 @@ void GPU::gp0_drawing_offset()
 void GPU::gp0_mask_bit_setting()
 {
 	printf("GPU mask bit setting\n");
-	uint32_t data = gp0_command[0];
+	uint32_t data = command_fifo[0];
 
 	status.force_set_mask_bit = get_bit(data, 0);
 	status.preserve_masked_pixels = get_bit(data, 1);
@@ -314,7 +369,7 @@ void GPU::gp0_clear_cache()
 
 void GPU::gp0_image_load()
 {
-	uint32_t res = gp0_command[2];
+	uint32_t res = command_fifo[2];
 	uint32_t width = bit_range(res, 0, 16);
 	uint32_t height = bit_range(res, 16, 32);
 
@@ -323,13 +378,32 @@ void GPU::gp0_image_load()
 	uint32_t imgsize = width * height;
 	imgsize = (imgsize + 1) & ~1;
 
-	gp0_remaining_words = imgsize / 2;
+	remaining_attribs = imgsize / 2;
+
+	uint32_t source_coord = command_fifo[1];
+	uint32_t coordx = bit_range(source_coord, 0, 16);
+	uint32_t coordy = bit_range(source_coord, 16, 32);
+	 
+	/* Is the image not 0 */
+	if (remaining_attribs > 0) {
+		buffer.pixels = std::vector<uint16_t>(imgsize);
+		buffer.width = width;
+		buffer.height = height;
+		buffer.top_left = std::make_pair(coordx, coordy);
+
+		
+	}
+	else {
+		printf("GPU image size 0!\n");
+		exit(0);
+	}
+
 	image_load = true;
 }
 
 void GPU::gp0_image_store()
 {
-	uint32_t res = gp0_command[2];
+	uint32_t res = command_fifo[2];
 	uint32_t width = bit_range(res, 0, 16);
 	uint32_t height = bit_range(res, 16, 32);
 
@@ -342,18 +416,18 @@ void GPU::gp0_shaded_quad()
 	
 	Verts pos =
 	{
-		Pos2::from_gpu(gp0_command[1]),
-		Pos2::from_gpu(gp0_command[3]),
-		Pos2::from_gpu(gp0_command[5]),
-		Pos2::from_gpu(gp0_command[7]),
+		Pos2::from_gpu(command_fifo[1]),
+		Pos2::from_gpu(command_fifo[3]),
+		Pos2::from_gpu(command_fifo[5]),
+		Pos2::from_gpu(command_fifo[7]),
 	};
 
 	Colors colors =
 	{
-		Color::from_gpu(gp0_command[0]),
-		Color::from_gpu(gp0_command[2]),
-		Color::from_gpu(gp0_command[4]),
-		Color::from_gpu(gp0_command[6]),
+		Color::from_gpu(command_fifo[0]),
+		Color::from_gpu(command_fifo[2]),
+		Color::from_gpu(command_fifo[4]),
+		Color::from_gpu(command_fifo[6]),
 	};
 
 	gl_renderer->push_quad(pos, colors);
@@ -365,10 +439,10 @@ void GPU::gp0_shaded_quad_blend()
 
 	Verts pos =
 	{
-		Pos2::from_gpu(gp0_command[1]),
-		Pos2::from_gpu(gp0_command[3]),
-		Pos2::from_gpu(gp0_command[5]),
-		Pos2::from_gpu(gp0_command[7]),
+		Pos2::from_gpu(command_fifo[1]),
+		Pos2::from_gpu(command_fifo[3]),
+		Pos2::from_gpu(command_fifo[5]),
+		Pos2::from_gpu(command_fifo[7]),
 	};
 	
 	Color color(0x80, 0x80, 0x80);
@@ -383,16 +457,16 @@ void GPU::gp0_shaded_trig()
 
 	Verts pos =
 	{
-		Pos2::from_gpu(gp0_command[1]),
-		Pos2::from_gpu(gp0_command[3]),
-		Pos2::from_gpu(gp0_command[5])
+		Pos2::from_gpu(command_fifo[1]),
+		Pos2::from_gpu(command_fifo[3]),
+		Pos2::from_gpu(command_fifo[5])
 	};
 
 	Colors colors =
 	{
-		Color::from_gpu(gp0_command[0]),
-		Color::from_gpu(gp0_command[2]),
-		Color::from_gpu(gp0_command[4])
+		Color::from_gpu(command_fifo[0]),
+		Color::from_gpu(command_fifo[2]),
+		Color::from_gpu(command_fifo[4])
 	};
 
 	gl_renderer->push_triangle(pos, colors);
@@ -510,8 +584,8 @@ void GPU::gp1_acknowledge_irq(uint32_t data)
 void GPU::gp1_reset_cmd_buffer(uint32_t data)
 {
 	printf("GPU GP1 reset command buffer\n");
-	gp0_command.clear();
-	gp0_remaining_words = 0;
+	command_fifo.clear();
+	remaining_attribs = 0;
 	image_load = false;
 
 	// TODO : clear the command FIFO

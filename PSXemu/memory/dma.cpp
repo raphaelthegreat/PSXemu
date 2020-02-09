@@ -107,21 +107,39 @@ void DMAController::start_dma(DMAChannels channel)
 
 void DMAController::dma_block_copy(DMAChannels _channel)
 {
+	/* Get the channel to start the transfer. */
 	DMAChannel& channel = get_channel(_channel);
+	
+	/* Necessary data we need to start. */
 	TransferDir trans_dir = channel.control.transfer_dir;
 	SyncType sync_mode = channel.control.sync_mode;
 	StepMode step_mode = channel.control.step_mode;
 
+	/* Get base address of the transfer. */
 	uint32_t base_addr = channel.get_base();
 	
+	/* Set steping mode (increment or decrement at every step). */
 	int32_t increment = 4; 
 	if (step_mode == StepMode::Decrement)
 		increment = -4;
 
+	/* Get the amout of bytes each data must be interpreted as. */
+	/* This is different between sync modes. 
+	   For Manual SyncMode:
+			bits 0-15 -> number of blocks (block_size)
+			bis 16-31 -> unused
+	   For Request SyncMode:
+			bits 0-15 -> size of each block (block_size)
+			bits 16-31 -> number of blocks  (block_count)
+			(So we need to do block_size * block_count to get total number of bytes)
+	   For Linked List SyncMode
+			bits 0-31 -> unused
+	*/
 	uint32_t block_size = channel.block.block_size;
 	if (sync_mode == SyncType::Request)
 		block_size *= channel.block.block_count;
 
+	/* Transfer the remaining blocks. */
 	while (block_size > 0) {
 		uint32_t addr = base_addr & 0x1ffffc;
 
@@ -140,17 +158,20 @@ void DMAController::dma_block_copy(DMAChannels _channel)
 		else {
 			uint32_t data = bus->read(addr);
 
+			/* Send command or opereand to the GPU. */
 			if (_channel == DMAChannels::GPU)
-				bus->gpu->write_gp0(data);
+				bus->gpu->gp0_command(data);
 			else
 				panic("Unhandled DMA source port!", "");
 		}
-			
+		
+		/* Step to the next block. */
 		base_addr += increment;
+		/* Decrement the remaing blocks. */
 		block_size--;
 	}
 	
-	// DMA is done.
+	/* Complete DMA Transfer */
 	channel.done_transfer();
 }
 
@@ -178,7 +199,7 @@ void DMAController::dma_list_copy(DMAChannels _channel)
 			
 			uint32_t command = bus->read(addr);
 			log("GPU command: 0x", command);
-			bus->gpu->write_gp0(command);
+			bus->gpu->gp0_command(command);
 			count--;
 		}
 

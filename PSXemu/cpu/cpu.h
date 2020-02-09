@@ -83,7 +83,6 @@ public:
 	LoadDelay load;
 	
 	CacheLine instr_cache[256] = {};
-	cache_line instr_cache2[256] = {};
 
 	Bus* bus;
 	Renderer* renderer;

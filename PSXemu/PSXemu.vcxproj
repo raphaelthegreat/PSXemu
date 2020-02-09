@@ -92,6 +92,7 @@
     <ClCompile Include="cpu\cache.cpp" />
     <ClCompile Include="cpu\util.cpp" />
     <ClCompile Include="cpu\cpu.cpp" />
+    <ClCompile Include="devices\timer.cpp" />
     <ClCompile Include="memory\bios.cpp" />
     <ClCompile Include="memory\dma.cpp" />
     <ClCompile Include="memory\bus.cpp" />
@@ -101,6 +102,7 @@
     <ClCompile Include="video\opengl\buffer.cpp" />
     <ClCompile Include="video\gpu.cpp" />
     <ClCompile Include="video\opengl\shader.cpp" />
+    <ClCompile Include="video\opengl\texture.cpp" />
     <ClCompile Include="video\renderer.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -115,15 +117,17 @@
     <ClInclude Include="memory\bus.h" />
     <ClInclude Include="memory\ram.h" />
     <ClInclude Include="psx.h" />
+    <ClInclude Include="video\gpu_reg.h" />
     <ClInclude Include="video\opengl\buffer.h" />
     <ClInclude Include="video\gpu.h" />
     <ClInclude Include="video\opengl\shader.h" />
+    <ClInclude Include="video\opengl\texture.h" />
     <ClInclude Include="video\renderer.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="SCPH1001.BIN" />
-    <None Include="shaders\fragment.glsl" />
-    <None Include="shaders\vertex.glsl" />
+    <None Include="shaders\fragment.frag" />
+    <None Include="shaders\vertex.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

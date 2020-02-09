@@ -88,7 +88,7 @@ struct DMAIRQReg {
 	uint32_t master_flag : 1;
 };
 
-// A class managing all reads, writes and functions to DMA
+/* A class that manages all DMA routines. */
 class Bus;
 class DMAController {
 public:
@@ -97,13 +97,13 @@ public:
 	void start_dma(DMAChannels channel);
 	void dma_block_copy(DMAChannels channel);
 	void dma_list_copy(DMAChannels channel);
+	DMAChannel& get_channel(DMAChannels channel);
 
 	uint32_t read(uint32_t offset);
 	void write(uint32_t offset, uint32_t data);
 
 	uint32_t get_irq();
 	uint32_t get_control();
-	DMAChannel& get_channel(DMAChannels channel);
 
 	void set_irq(uint32_t val);
 	void set_control(uint32_t val);

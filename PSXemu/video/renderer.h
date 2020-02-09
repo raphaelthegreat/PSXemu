@@ -1,6 +1,7 @@
 #pragma once
 #include "opengl/buffer.h"
 #include "opengl/shader.h"
+#include "opengl/texture.h"
 #include <memory>
 
 using std::unique_ptr;
@@ -16,6 +17,7 @@ public:
 
 	void push_triangle(Verts& pos, Colors& colors);
 	void push_quad(Verts& pos, Colors& colors);
+	void push_image(TextureBuffer& buffer);
 	void draw_scene();
 
 	void set_draw_offset(int16_t x, int16_t y);
@@ -33,4 +35,5 @@ public:
 	unique_ptr<Shader> shader;
 	unique_ptr<Buffer<Color>> color_buffer;
 	unique_ptr<Buffer<Pos2>> vertex_buffer;
+	std::vector<TextureBuffer> textures;
 };                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                

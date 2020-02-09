@@ -1,75 +1,12 @@
 #pragma once
+#include "opengl/texture.h"
+#include "gpu_reg.h"
 #include <vector>
 #include <functional>
 #include <utility>
 #include <cstdint>
 
 #define BIND(x) std::bind(&GPU::x, this)
-
-enum class TextureDepth {
-	D4bit = 0,
-	D8bit = 1,
-	D15bit = 2
-};
-
-enum class Field {
-	Top = 1,
-	Bottom = 0
-};
-
-class HorizontalRes {
-public:
-	static HorizontalRes from_bits(uint8_t h1, uint8_t h2);
-
-public:
-	uint8_t hr : 3;
-};
-
-enum class VerticalRes {
-	V240 = 0,
-	V480 = 1
-};
-
-enum class VideoMode {
-	NTSC = 0,
-	PAL = 1
-};
-
-enum class ColorDepth {
-	C15bit = 0,
-	C24bit = 1
-};
-
-enum class DMADirection {
-	Off = 0,
-	Fifo = 1,
-	Cpu_Gpu = 2,
-	Vram_Cpu = 3
-};
-
-struct GPUSTAT {
-	uint32_t page_base_x;
-	uint32_t page_base_y;
-	uint32_t semi_transprency;
-	
-	TextureDepth texture_depth;
-	uint32_t dithering;
-	uint32_t draw_to_display;
-	uint32_t force_set_mask_bit;
-	uint32_t preserve_masked_pixels;
-
-	Field field;
-	uint32_t texture_disable;
-	HorizontalRes hres;
-	VerticalRes vres;
-	VideoMode video_mode;
-
-	ColorDepth color_depth;
-	uint32_t vertical_interlace;
-	uint32_t display_disable;
-	uint32_t interrupt_req;
-	DMADirection dma_dir;
-};
 
 enum class GP0Command {
 	Nop = 0x0,
@@ -100,7 +37,31 @@ enum class GP1Command {
 	Display_Mode = 0x08
 };
 
+enum class TextureMethod {
+	None,
+	Raw,
+	Blended,
+};
+
 typedef std::function<void()> GP0Func;
+
+struct TCacheLine {
+	uint8_t data[8];
+};
+
+struct VRAMLine {
+public:
+	VRAMLine() = default;
+	~VRAMLine() = default;
+
+	uint8_t get4bit(uint32_t index);
+	uint8_t get8bit(uint32_t index);
+	uint16_t get16bit(uint32_t index);
+	uint32_t get24bit(uint32_t index);
+
+private:
+	uint8_t data[2048] = { 0 };
+};
 
 class Renderer;
 class GPU {
@@ -110,8 +71,8 @@ public:
 	uint32_t get_status();
 	uint32_t get_read();
 
-	void write_gp0(uint32_t data);
-	void write_gp1(uint32_t data);
+	void gp0_command(uint32_t data);
+	void gp1_command(uint32_t data);
 
 	void gp0_nop();
 	void gp0_mono_quad();
@@ -164,14 +125,17 @@ private:
 	uint16_t display_line_start;
 	uint16_t display_line_end;
 
-	std::vector<uint32_t> gp0_command;
-	GP0Func gp0_handler;
-	uint32_t gp0_remaining_words;
+	std::vector<uint32_t> command_fifo;
+	GP0Func command_handler;
+	GP0Func gp0_image_handler;
+	uint32_t remaining_attribs;
 
 	bool image_load;
 	Renderer* gl_renderer;
 
-	uint8_t frame_buffer[1024 * 1024] = { 0x0 };
-	uint8_t texture_cache[2 * 1024] = { 0x0 };
-	uint8_t command_fifo[64];
+	VRAMLine vram[512];
+	TCacheLine texture_cache[256];
+
+	/* Intermediate texture storage. */
+	TextureBuffer buffer;
 };

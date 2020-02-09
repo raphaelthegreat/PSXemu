@@ -16,8 +16,8 @@ Renderer::Renderer(int _width, int _height, std::string title)
 
     shader = std::make_unique<Shader>();
     
-    shader->load("shaders/vertex.glsl", ShaderType::Vertex);
-    shader->load("shaders/fragment.glsl", ShaderType::Fragment);
+    shader->load("shaders/vertex.vert", ShaderType::Vertex);
+    shader->load("shaders/fragment.frag", ShaderType::Fragment);
     shader->build();
 
     glGenVertexArrays(1, &vao);
@@ -72,6 +72,11 @@ void Renderer::push_quad(Verts& pos, Colors& colors)
         color_buffer->set(count, colors[i]);
         count++;
     }
+}
+
+void Renderer::push_image(TextureBuffer& buffer)
+{
+    textures.push_back(buffer);
 }
 
 void Renderer::draw_scene()
