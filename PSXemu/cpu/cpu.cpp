@@ -7,10 +7,11 @@ CPU::CPU(Renderer* _renderer) :
 {
 	renderer = _renderer;
 
-	memset(regs, 0xdeadbeef, 32);
-	memset(out_regs, 0xdeadbeef, 32);
-	memset(cop0.regs, 0x0, 64 * 4);
+	memset(regs, 0, 32);
+	memset(out_regs, 0, 32);
+	memset(cop0.regs, 0, 64 * 4);
 
+	/* Create memory bus and load the bios. */
 	bus = new Bus("SCPH1001.BIN", renderer);
 	this->reset();
 }
@@ -22,10 +23,11 @@ CPU::~CPU()
 
 void CPU::reset()
 {
+	/* Reset CPU state. */
 	pc = 0xbfc00000;
 	next_pc = pc + 4;
 	current_pc = 0;
-	hi = 0; low = 0;
+	hi = 0; lo = 0;
 	regs[0] = 0;
 
 	load = std::make_pair(0, 0);
@@ -34,26 +36,67 @@ void CPU::reset()
 
 void CPU::tick()
 {
-	instr.opcode = read(pc);
+	current_pc = pc;
 	
- 	current_pc = pc;
-	pc = next_pc; 
-	next_pc = pc + 4;
-
+	/* Check for alignment errors. */
 	if (current_pc % 4 != 0) {
 		exception(ReadError);
 		return;
 	}
+	
+	this->fetch();
 
+	pc = next_pc;
+	next_pc = pc + 4;
+
+	/* Apply any pending load delay slot. */
 	auto [reg, val] = load;
 	set_reg(reg, val);
 	load = std::make_pair(0, 0);
 
 	delay_slot = should_branch;
 	should_branch = false;
+
+	/* Execute fetched instruction. */
+	this->execute();
 	
-	execute();
-	memcpy(regs, out_regs, 32 * 4);
+	/* Copy modified registers. */
+	std::copy(out_regs, out_regs + 32, regs);
+}
+
+void CPU::fetch()
+{
+	CacheControl& cc = bus->cache_ctrl;
+
+	Address addr;
+	addr.raw = pc;
+
+	bool kseg1 = KSEG1.contains(pc).has_value();
+	if (!kseg1 && cc.is1) {
+
+		/* Fetch cache line and check its validity. */
+		CacheLine& line = instr_cache[addr.cache_line];
+		bool not_valid = line.tag() != addr.tag;
+		not_valid |= line.tag_valid() > addr.index;
+
+		/* Handle cache miss. */
+		if (not_valid) {
+			uint32_t cpc = pc;
+			
+			for (int i = addr.index; i < 4; i++) {
+				line.instrs[i] = Instruction(read(cpc));
+				cpc += 4;
+			}
+		}
+
+		line.set_tag_valid(pc);
+
+		/* Get instruction from cache. */
+		instr = line.instrs[addr.index];
+	}
+	else {
+		instr.opcode = read(pc);
+	}
 }
 
 void CPU::execute()
@@ -155,7 +198,7 @@ void CPU::branch(uint32_t offset)
 
 void CPU::exception(ExceptionType type)
 {
-	uint32_t handler;
+	uint32_t handler = 0;
 	switch (cop0.sr.BEV) {
 		case true: handler = 0xbfc00180; break;
 		case false: handler = 0x80000080; break;
@@ -173,7 +216,8 @@ void CPU::exception(ExceptionType type)
 		set_bit(cop0.cause.raw, 31, true);
 	}
 
-	pc = handler; next_pc = handler + 4;
+	pc = handler; 
+	next_pc = handler + 4;
 }
 
 void CPU::op_lui()
@@ -219,7 +263,7 @@ void CPU::op_lw()
 	uint32_t addr = s + data;
 	
 	if (addr % 4 == 0)
-		load = std::make_pair(rt, read<uint32_t>(addr));
+		load = std::make_pair(rt, read(addr));
 	else
 		exception(ReadError);
 }
@@ -295,13 +339,6 @@ void CPU::op_mfc0()
 	auto cop_r = instr.rd().index;
 	
 	uint32_t val = cop0.regs[cop_r];
-	/*switch (cop_r) {
-		case 12: val = sr; break;
-		case 13: val = cause; break;
-		case 14: val = epc; break;
-		default: panic("Unheandled read from Cop0 register: 0x", cop_r);
-	}*/
-
 	load = std::make_pair(cpu_r, val);
 }
 
@@ -311,25 +348,6 @@ void CPU::op_mtc0()
 	auto cop_r = instr.rd().index;
 
 	uint32_t val = get_reg(cpu_r);
-	
-	/*switch (cop_r) {
-	case 3:
-	case 5:
-	case 6:
-	case 7:
-	case 9:
-	case 11:
-		if (val != 0)
-			panic("Unhandled write to cop0 register: ", cop_r);
-		break;
-	case 12: sr = val; break;
-	case 13:
-		if (val != 0)
-			panic("Unhandled write to cop0 CAUSE register: ", cop_r);
-		break;
-	default: panic("Unhandled cop0 register: ", cop_r);
-	}*/
-
 	cop0.regs[cop_r] = val;
 }
 
@@ -417,10 +435,18 @@ void CPU::op_lwl()
 
 	uint32_t val;
 	switch (addr & 0x3f) {
-	case 0: val = (cur_v & 0x00ffffff) | (aligned_word << 24); break;
-	case 1: val = (cur_v & 0x0000ffff) | (aligned_word << 16); break;
-	case 2: val = (cur_v & 0x000000ff) | (aligned_word << 8); break;
-	case 3: val = (cur_v & 0x00000000) |  aligned_word; break;
+		case 0: 
+			val = (cur_v & 0x00ffffff) | (aligned_word << 24); 
+			break;
+		case 1: 
+			val = (cur_v & 0x0000ffff) | (aligned_word << 16); 
+			break;
+		case 2: 
+			val = (cur_v & 0x000000ff) | (aligned_word << 8); 
+			break;
+		case 3: 
+			val = (cur_v & 0x00000000) |  aligned_word; 
+			break;
 	};
 
 	load = std::make_pair(rt, val);
@@ -440,10 +466,18 @@ void CPU::op_lwr()
 
 	uint32_t val;
 	switch (addr & 0x3f) {
-	case 0: val = (cur_v & 0x00000000) | aligned_word; break;
-	case 1: val = (cur_v & 0xff000000) | (aligned_word >> 8); break;
-	case 2: val = (cur_v & 0xffff0000) | (aligned_word >> 16); break;
-	case 3: val = (cur_v & 0xffffff00) | (aligned_word >> 24); break;
+		case 0: 
+			val = (cur_v & 0x00000000) | aligned_word; 
+			break;
+		case 1: 
+			val = (cur_v & 0xff000000) | (aligned_word >> 8);
+			break;
+		case 2: 
+			val = (cur_v & 0xffff0000) | (aligned_word >> 16); 
+			break;
+		case 3: 
+			val = (cur_v & 0xffffff00) | (aligned_word >> 24); 
+			break;
 	};
 
 	load = std::make_pair(rt, val);
@@ -463,10 +497,18 @@ void CPU::op_swl()
 
 	uint32_t memory;
 	switch (addr & 3) {
-	case 0: memory = (cur_mem & 0xffffff00) | (val >> 24); break;
-	case 1: memory = (cur_mem & 0xffff0000) | (val >> 16); break;
-	case 2: memory = (cur_mem & 0xff000000) | (val >> 8); break;
-	case 3: memory = (cur_mem & 0x00000000) | val; break;
+		case 0: 
+			memory = (cur_mem & 0xffffff00) | (val >> 24); 
+			break;
+		case 1: 
+			memory = (cur_mem & 0xffff0000) | (val >> 16); 
+			break;
+		case 2: 
+			memory = (cur_mem & 0xff000000) | (val >> 8); 
+			break;
+		case 3: 
+			memory = (cur_mem & 0x00000000) | val; 
+			break;
 	};
 
 	write<uint32_t>(aligned_addr, memory);
@@ -486,10 +528,18 @@ void CPU::op_swr()
 
 	uint32_t memory;
 	switch (addr & 3) {
-	case 0: memory = (cur_mem & 0x00000000) | val; break;
-	case 1: memory = (cur_mem & 0x000000ff) | (val << 8); break;
-	case 2: memory = (cur_mem & 0x0000ffff) | (val << 16); break;
-	case 3: memory = (cur_mem & 0x00ffffff) | (val << 24); break;
+		case 0: 
+			memory = (cur_mem & 0x00000000) | val; 
+			break;
+		case 1: 
+			memory = (cur_mem & 0x000000ff) | (val << 8); 
+			break;
+		case 2: 
+			memory = (cur_mem & 0x0000ffff) | (val << 16); 
+			break;
+		case 3: 
+			memory = (cur_mem & 0x00ffffff) | (val << 24); 
+			break;
 	};
 
 	write<uint32_t>(aligned_addr, memory);
@@ -766,27 +816,27 @@ void CPU::op_div()
 		hi = (uint32_t)n;
 
 		if (n >= 0) {
-			low = 0xffffffff;
+			lo = 0xffffffff;
 		}
 		else {
-			low = 1;
+			lo = 1;
 		}
 	}
 	else if ((uint32_t)n == 0x80000000 && d == -1) {
 		// Result is not representable in a 32bit signed integer
 		hi = 0;
-		low = 0x80000000;
+		lo = 0x80000000;
 	}
 	else {
 		hi = (uint32_t)(n % d);
-		low = (uint32_t)(n / d);
+		lo = (uint32_t)(n / d);
 	}
 }
 
 void CPU::op_mlfo()
 {
 	auto rd = instr.rd();
-	set_reg(rd, low);
+	set_reg(rd, lo);
 }
 
 void CPU::op_nor()
@@ -897,16 +947,17 @@ void CPU::op_divu()
 {
 	auto s = instr.rs();
 	auto t = instr.rt();
+	
 	auto n = get_reg(s);
 	auto d = get_reg(t);
 	
 	if (d == 0) {
 		hi = n;
-		low = 0xffffffff;
+		lo = 0xffffffff;
 	}
 	else {
 		hi = n % d;
-		low = n / d;
+		lo = n / d;
 	}
 }
 
@@ -918,6 +969,8 @@ void CPU::op_mfhi()
 
 void CPU::op_mflo()
 {
+	auto rd = instr.rd();
+	set_reg(rd, lo);
 }
 
 void CPU::op_mthi()
@@ -929,7 +982,7 @@ void CPU::op_mthi()
 void CPU::op_mtlo()
 {
 	auto rs = instr.rs();
-	low = get_reg(rs);
+	lo = get_reg(rs);
 }
 
 void CPU::op_mult()
@@ -937,12 +990,12 @@ void CPU::op_mult()
 	auto rt = instr.rt();
 	auto rs = instr.rs();
 
-	int64_t t = static_cast<int64_t>((int32_t)get_reg(rt));
-	int64_t s = static_cast<int64_t>((int32_t)get_reg(rs));
-
-	uint64_t product = static_cast<int64_t>(t * s);
-	low = static_cast<uint32_t>(product);
-	hi = static_cast<uint32_t>(product >> 32);
+	int64_t v1 = (int32_t)get_reg(rs);
+	int64_t v2 = (int32_t)get_reg(rt);
+	uint64_t result = v1 * v2;
+	
+	hi = result >> 32;
+	lo = result;
 }
 
 void CPU::op_multu()
@@ -950,10 +1003,10 @@ void CPU::op_multu()
 	auto rt = instr.rt();
 	auto rs = instr.rs();
 
-	uint64_t t = static_cast<uint64_t>(get_reg(rt));
-	uint64_t s = static_cast<uint64_t>(get_reg(rs));
-
-	uint64_t product = t * s;
-	low = static_cast<uint32_t>(product);
-	hi = static_cast<uint32_t>(product >> 32);
+	uint64_t v1 = get_reg(rs);
+	uint64_t v2 = get_reg(rt);
+	uint64_t result = v1 * v2;
+	
+	hi = result >> 32;
+	lo = result;
 }

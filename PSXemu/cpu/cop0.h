@@ -1,6 +1,16 @@
 #pragma once
 #include <cstdint>
 
+enum ExceptionType {
+	ReadError = 0x4,
+	WriteError = 0x5,
+	SysCall = 0x8,
+	Overflow = 0xc,
+	Break = 0x9,
+	CopError = 0xb,
+	IllegalInstr = 0xa,
+};
+
 union Cop0STAT {
 	uint32_t raw;
 	struct {

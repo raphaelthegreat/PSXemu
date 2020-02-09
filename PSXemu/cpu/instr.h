@@ -8,7 +8,8 @@ struct RegIndex {
 
 class Instruction {
 public:
-	Instruction(uint32_t op) { opcode = op; }
+	Instruction() = default;
+	Instruction(uint32_t op) : opcode(op) {}
 
 	uint32_t type() { return opcode >> 26; }
 	uint32_t subtype() { return opcode & 0x3f; }
@@ -22,5 +23,5 @@ public:
 	uint32_t shift() { return (opcode >> 6) & 0x1f; }
 
 public:
-	uint32_t opcode;
+	uint32_t opcode = 0;
 };

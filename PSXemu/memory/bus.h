@@ -8,6 +8,7 @@
 #include <memory/dma.h>
 #include <video/gpu.h>
 #include <cpu/util.h>
+#include <cpu/cache.h>
 using std::unique_ptr;
 
 class Range {
@@ -55,6 +56,7 @@ public:
 	unique_ptr<Ram> ram;
 
 	DMAController dma;
+	CacheControl cache_ctrl;
 	unique_ptr<GPU> gpu;
 
 	Renderer* gl_renderer;
@@ -144,8 +146,10 @@ inline void Bus::write(uint32_t addr, T data)
 	}
 	if (auto offset = RAM.contains(abs_addr); offset.has_value())
 		return ram->write<T>(offset.value(), data);
-	else if (auto offset = CACHE_CONTROL.contains(abs_addr); offset.has_value()) // CACHE CONTROL register
+	else if (auto offset = CACHE_CONTROL.contains(abs_addr); offset.has_value()) {
+		cache_ctrl.raw = data;
 		return;
+	}
 	else if (auto offset = RAM_SIZE.contains(abs_addr); offset.has_value()) // RAM_SIZE register
 		return;
 	else if (auto offset = IRQ_CONTROL.contains(abs_addr); offset.has_value()) {
