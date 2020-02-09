@@ -89,7 +89,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="cpu\cache.cpp" />
     <ClCompile Include="cpu\util.cpp" />
     <ClCompile Include="cpu\cpu.cpp" />
     <ClCompile Include="devices\timer.cpp" />
@@ -111,10 +110,12 @@
     <ClInclude Include="cpu\instr.h" />
     <ClInclude Include="cpu\util.h" />
     <ClInclude Include="cpu\cpu.h" />
+    <ClInclude Include="devices\header.h" />
     <ClInclude Include="devices\timer.h" />
     <ClInclude Include="memory\bios.h" />
     <ClInclude Include="memory\dma.h" />
     <ClInclude Include="memory\bus.h" />
+    <ClInclude Include="memory\header.h" />
     <ClInclude Include="memory\ram.h" />
     <ClInclude Include="psx.h" />
     <ClInclude Include="video\gpu_reg.h" />

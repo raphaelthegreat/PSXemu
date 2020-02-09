@@ -6,6 +6,7 @@
 
 #define BUFFER_SIZE 64 * 1024
 
+/* Vertex color attribute. */
 class Color {
 public:
 	Color() = default;
@@ -18,6 +19,7 @@ public:
 	uint8_t red = 0, green = 0, blue = 0;
 };
 
+/* Vertex position attribute. */
 class Pos2 {
 public:
 	Pos2() = default;
@@ -29,6 +31,7 @@ public:
 	int16_t x = 0, y = 0;
 };
 
+/* An OpenGL VBO that contains the vertices. */
 template <typename T>
 class Buffer {
 public:

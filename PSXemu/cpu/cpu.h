@@ -105,6 +105,7 @@ inline void CPU::write(uint32_t addr, T data)
 		Address address;
 		address.raw = addr;
 
+		/* Check if caching is enabled. */
 		if (!cc.is1) {
 			printf("Unsupported write while cache is enabled!\n");
 			exit(0);
@@ -112,9 +113,11 @@ inline void CPU::write(uint32_t addr, T data)
 
 		CacheLine& line = instr_cache[address.cache_line];
 
+		/* Invalid cache line if TAG test is enabled. */
 		if (cc.tag) {
-			line.invalidate();
-		}
+			/* Invalidate by pushing index out of range. */
+			line.tag.index = 4;
+		} /* Write to cache. */
 		else {
 			Instruction instr = Instruction(data);
 			line.instrs[address.index] = instr;

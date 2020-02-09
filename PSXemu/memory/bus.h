@@ -36,10 +36,6 @@ const Range TIMERS = Range(0x1f801100, 0x30);
 const Range DMA = Range(0x1f801080, 0x80);
 const Range GPU_RANGE = Range(0x1f801810, 8);
 
-union AddressSpace {
-
-};
-
 class Bus {
 public:
 	Bus(std::string bios_path, Renderer* renderer);
@@ -51,7 +47,7 @@ public:
 	template <typename T = uint32_t>
 	void write(uint32_t addr, T data);
 
-	uint32_t mask_region(uint32_t addr);
+	uint32_t physical_addr(uint32_t addr);
 
 public:
 	unique_ptr<Bios> bios;

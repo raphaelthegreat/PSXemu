@@ -8,7 +8,7 @@
 
 #define BIND(x) std::bind(&GPU::x, this)
 
-enum class GP0Command {
+enum GP0Command {
 	Nop = 0x0,
 	Clear_Cache = 0x1,
 	Mono_Quad = 0x28,
@@ -25,7 +25,7 @@ enum class GP0Command {
 	Mask_Bit_Setting = 0xe6
 };
 
-enum class GP1Command {
+enum GP1Command {
 	Reset = 0x0,
 	Reset_Cmd_Buffer = 0x01,
 	Acknowledge_Irq = 0x02,

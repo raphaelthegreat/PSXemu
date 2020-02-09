@@ -20,7 +20,7 @@ Bus::Bus(std::string bios_path, Renderer* renderer) :
     gpu = std::make_unique<GPU>(gl_renderer);
 }
 
-uint32_t Bus::mask_region(uint32_t addr)
+uint32_t Bus::physical_addr(uint32_t addr)
 {
     uint32_t index = addr >> 29;
     return (addr & region_mask[index]);
@@ -32,7 +32,7 @@ T Bus::read(uint32_t addr)
 	if (addr % sizeof(T) != 0)
 		panic("Unaligned read at address: 0x", addr);
 
-	uint32_t abs_addr = mask_region(addr);
+	uint32_t abs_addr = physical_addr(addr);
 
 	if (auto offset = EXPANSION_1.contains(abs_addr); offset.has_value())
 		return 0xff;
@@ -79,7 +79,7 @@ void Bus::write(uint32_t addr, T data)
 		exit(0);
 	}
 
-	uint32_t abs_addr = mask_region(addr);
+	uint32_t abs_addr = physical_addr(addr);
 
 	if (auto offset = TIMERS.contains(abs_addr); offset.has_value()) { // Ignore Timer write
 		uint32_t off = (offset.value() & 0x0f) >> 4;

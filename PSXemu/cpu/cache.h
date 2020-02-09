@@ -13,17 +13,20 @@ union Address {
 	};
 };
 
-struct CacheLine {
-public:
-	uint32_t tag_valid();
-	void set_tag_valid(uint32_t pc);
-	
-	uint32_t tag();
-	void invalidate();
+union CacheTag {
+	uint32_t raw;
 
-public:
-	uint32_t tag_val = 0;
-	Instruction instrs[4] = {};
+	struct {
+		uint32_t reserved : 2;
+		uint32_t index : 3;
+		uint32_t reserved2 : 7;
+		uint32_t tag : 20;
+	};
+};
+
+struct CacheLine {
+	CacheTag tag;
+	Instruction instrs[4];
 };
 
 union CacheControl {

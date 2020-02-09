@@ -44,7 +44,8 @@ void CPU::tick()
 		return;
 	}
 	
-	this->fetch();
+	/* Fetch instruction either from memory or from cahe. */
+	fetch();
 
 	pc = next_pc;
 	next_pc = pc + 4;
@@ -58,7 +59,7 @@ void CPU::tick()
 	should_branch = false;
 
 	/* Execute fetched instruction. */
-	this->execute();
+	execute();
 	
 	/* Copy modified registers. */
 	std::copy(out_regs, out_regs + 32, regs);
@@ -66,41 +67,48 @@ void CPU::tick()
 
 void CPU::fetch()
 {
+	/* Get cache control register. */
 	CacheControl& cc = bus->cache_ctrl;
 
+	/* Get PC address. */
 	Address addr;
 	addr.raw = pc;
 
 	bool kseg1 = KSEG1.contains(pc).has_value();
 	if (!kseg1 && cc.is1) {
 
-		/* Fetch cache line and check its validity. */
-		CacheLine& line = instr_cache[addr.cache_line];
-		bool not_valid = line.tag() != addr.tag;
-		not_valid |= line.tag_valid() > addr.index;
+		/* Fetch cache line and check it's validity. */
+		CacheLine& line = instr_cache[addr.cache_line];		
+		bool not_valid = line.tag.tag != addr.tag;
+		not_valid |= line.tag.index > addr.index;
 
 		/* Handle cache miss. */
 		if (not_valid) {
 			uint32_t cpc = pc;
 			
+			/* Move adjacent data to the cache. */
 			for (int i = addr.index; i < 4; i++) {
 				line.instrs[i] = Instruction(read(cpc));
 				cpc += 4;
 			}
 		}
 
-		line.set_tag_valid(pc);
+		/* Validate the cache line. */
+		line.tag.raw = pc & 0xfffff00c;
 
 		/* Get instruction from cache. */
 		instr = line.instrs[addr.index];
 	}
 	else {
+		/* Fetch instruction from main RAM. */
 		instr.opcode = read(pc);
 	}
 }
 
 void CPU::execute()
 {
+	/* Execute instruction. */
+	/* TODO: change this to std::unordred_map. */
 	switch (instr.type()) {
 		case 0b000000:
 			switch (instr.subtype()) {
