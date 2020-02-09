@@ -26,7 +26,6 @@ uint32_t Bus::mask_region(uint32_t addr)
     return (addr & region_mask[index]);
 }
 
-
 template<typename T>
 T Bus::read(uint32_t addr)
 {
