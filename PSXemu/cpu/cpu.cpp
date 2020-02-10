@@ -3,7 +3,7 @@
 #include <video/renderer.h>
 
 CPU::CPU(Renderer* _renderer) : 
-	load(std::make_pair(0, 0)), instr(0)
+	load(std::make_pair(0, 0))
 {
 	renderer = _renderer;
 
@@ -13,7 +13,12 @@ CPU::CPU(Renderer* _renderer) :
 
 	/* Create memory bus and load the bios. */
 	bus = new Bus("SCPH1001.BIN", renderer);
-	this->reset();
+	
+	/* Register opcodes. */
+	register_opcodes();
+
+	/* Reset CPU. */
+	reset();
 }
 
 CPU::~CPU()
@@ -59,7 +64,8 @@ void CPU::tick()
 	should_branch = false;
 
 	/* Execute fetched instruction. */
-	execute();
+	auto& handler = lookup[instr.r_type.opcode];
+	handler();
 	
 	/* Copy modified registers. */
 	std::copy(out_regs, out_regs + 32, regs);
@@ -88,7 +94,7 @@ void CPU::fetch()
 			
 			/* Move adjacent data to the cache. */
 			for (int i = addr.index; i < 4; i++) {
-				line.instrs[i] = Instruction(read(cpc));
+				line.instrs[i].raw = read(cpc);
 				cpc += 4;
 			}
 		}
@@ -101,99 +107,18 @@ void CPU::fetch()
 	}
 	else {
 		/* Fetch instruction from main RAM. */
-		instr.opcode = read(pc);
+		instr.raw = read(pc);
 	}
 }
 
-void CPU::execute()
+uint32_t CPU::get_reg(uint32_t reg)
 {
-	/* Execute instruction. */
-	/* TODO: change this to std::unordred_map. */
-	switch (instr.type()) {
-		case 0b000000:
-			switch (instr.subtype()) {
-				case 0b000000: op_sll(); break;
-				case 0b100101: op_or(); break;
-				case 0b101011: op_sltu(); break;
-				case 0b100001: op_addu(); break;
-				case 0b001000: op_jr(); break;
-				case 0b100100: op_and(); break;
-				case 0b100000: op_add(); break;
-				case 0b001001: op_jalr(); break;
-				case 0b100011: op_subu(); break;
-				case 0b000011: op_sra(); break;
-				case 0b011010: op_div(); break;
-				case 0b010010: op_mlfo(); break;
-				case 0b000010: op_srl(); break;
-				case 0b011011: op_divu(); break;
-				case 0b010000: op_mfhi(); break;
-				case 0b101010: op_slt(); break;
-				case 0b001100: op_syscall(); break;
-				case 0b010011: op_mtlo(); break;
-				case 0b010001: op_mthi(); break;
-				case 0b000100: op_sllv(); break;
-				case 0b100111: op_nor(); break;
-				case 0b000111: op_srav(); break;
-				case 0b000110: op_srlv(); break;
-				case 0b011001: op_multu(); break;
-				case 0b100110: op_xor(); break;
-				case 0b001101: op_break(); break;
-				case 0b011000: op_multu(); break;
-				case 0b100010: op_sub(); break;
-				default: op_illegal(); break;
-			}
-			break;
-		case 0b001111: op_lui(); break;
-		case 0b001101: op_ori(); break;
-		case 0b101011: op_sw(); break;
-		case 0b001001: op_addiu(); break;
-		case 0b001000: op_addi(); break;
-		case 0b000010: op_j(); break;
-		case 0b010000: op_cop0(); break;
-		case 0b010001: op_cop1(); break;
-		case 0b010010: op_cop2(); break;
-		case 0b010011: op_cop3(); break;
-		case 0b100011: op_lw(); break;
-		case 0b000101: op_bne(); break;
-		case 0b101001: op_sh(); break;
-		case 0b000011: op_jal(); break;
-		case 0b001100: op_andi(); break;
-		case 0b101000: op_sb(); break;
-		case 0b100000: op_lb(); break;
-		case 0b000100: op_beq(); break;
-		case 0b000111: op_bgtz(); break;
-		case 0b000110: op_blez(); break;
-		case 0b100100: op_lbu(); break;
-		case 0b000001: op_bxx(); break;
-		case 0b001010: op_slti(); break;
-		case 0b001011: op_sltiu(); break;
-		case 0b100101: op_lhu(); break;
-		case 0b100001: op_lh(); break;
-		case 0b001110: op_xori(); break;
-		case 0b110000: op_lwc0(); break;
-		case 0b110001: op_lwc1(); break;
-		case 0b110010: op_lwc2(); break;
-		case 0b110011: op_lwc3(); break;
-		case 0b111000: op_swc0(); break;
-		case 0b111001: op_swc1(); break;
-		case 0b111010: op_swc2(); break;
-		case 0b101110: op_swr(); break;
-		case 0b111011: op_swc3(); break;
-		case 0b101010: op_swl(); break;
-		case 0b100010: op_lwl(); break;
-		case 0b100110: op_lwr(); break;
-		default: op_illegal(); break;
-	}
+	return regs[reg];
 }
 
-uint32_t CPU::get_reg(RegIndex reg)
+void CPU::set_reg(uint32_t reg, uint32_t val)
 {
-	return regs[reg.index];
-}
-
-void CPU::set_reg(RegIndex reg, uint32_t val)
-{
-	out_regs[reg.index] = val;
+	out_regs[reg] = val;
 	out_regs[0] = 0;
 }
 
@@ -208,30 +133,42 @@ void CPU::exception(ExceptionType type)
 {
 	uint32_t handler = 0;
 	switch (cop0.sr.BEV) {
-		case true: handler = 0xbfc00180; break;
-		case false: handler = 0x80000080; break;
+		case true: 
+			handler = 0xbfc00180; 
+			break;
+		case false: 
+			handler = 0x80000080; 
+			break;
 	}
 
-	uint32_t mode = cop0.sr.raw & 0x3f; // Get mode
-	cop0.sr.raw &= ~0x3f; // Clear mode bits
+	/* Get the Kernel-User mode bits. */
+	uint32_t mode = cop0.sr.raw & 0x3f;
+	/* Clear them. */
+	cop0.sr.raw &= ~0x3f;
+	/* Shift the to the left. */
 	cop0.sr.raw |= (mode << 2) & 0x3f;
+	/* Update the exec code. */
+	cop0.cause.exc_code = type;
 
-	cop0.cause.raw = (uint32_t)type << 2;
-	cop0.epc = current_pc;
-
+	/* Update the CAUSE register. */
 	if (delay_slot) {
-		cop0.epc -= 4;
-		set_bit(cop0.cause.raw, 31, true);
+		cop0.epc = pc - 4;
+		cop0.cause.BD = true;
+	}
+	else {
+		cop0.epc = pc;
+		cop0.cause.BD = false;
 	}
 
+	/* Update PC to exception handler. */
 	pc = handler; 
 	next_pc = handler + 4;
 }
 
 void CPU::op_lui()
 {
-	auto data = instr.imm();
-	auto rt = instr.rt();
+	auto data = instr.i_type.data;
+	auto rt = instr.r_type.rt;
 
 	uint32_t val = data << 16;
 	set_reg(rt, val);
@@ -239,9 +176,9 @@ void CPU::op_lui()
 
 void CPU::op_ori()
 {
-	auto data = instr.imm();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto data = instr.i_type.data;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
 	uint32_t val = get_reg(rs) | data;
 	set_reg(rt, val);
@@ -249,38 +186,41 @@ void CPU::op_ori()
 
 void CPU::op_sw()
 {
-	auto data = instr.simm();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto data = (int16_t)instr.i_type.data;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
 	uint32_t addr = get_reg(rs) + data;
 	
 	if (addr % 4 == 0)
-		write<uint32_t>(addr, get_reg(rt));
+		write(addr, get_reg(rt));
 	else
 		exception(WriteError);
 }
 
 void CPU::op_lw()
 {
-	auto data = instr.simm();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto data = (int16_t)instr.i_type.data;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
 	uint32_t s = get_reg(rs);
 	uint32_t addr = s + data;
 	
-	if (addr % 4 == 0)
-		load = std::make_pair(rt, read(addr));
-	else
+	if (addr % 4 == 0) {
+		uint32_t val = read(addr);
+		load = std::make_pair(rt, val);
+	}
+	else {
 		exception(ReadError);
+	}
 }
 
 void CPU::op_sll()
 {
-	auto data = instr.shift();
-	auto rt = instr.rt();
-	auto rd = instr.rd();
+	auto data = instr.r_type.shamt;
+	auto rt = instr.r_type.rt;
+	auto rd = instr.r_type.rd;
 
 	uint32_t val = get_reg(rt) << data;
 	set_reg(rd, val);
@@ -288,9 +228,9 @@ void CPU::op_sll()
 
 void CPU::op_addiu()
 {
-	auto data = instr.simm();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto data = (int16_t)instr.i_type.data;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
 	uint32_t val = get_reg(rs) + data;
 	set_reg(rt, val);
@@ -298,20 +238,25 @@ void CPU::op_addiu()
 
 void CPU::op_addi()
 {
-	int32_t data = instr.simm();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	int16_t data = instr.i_type.data;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
+	
+	uint32_t v = get_reg(rs);
+	uint32_t result = v + data;
+	bool overflow = ((~(v ^ data)) & (v ^ result)) & 0x80000000;
 
-	int32_t s = get_reg(rs);
-	int64_t sum = (int64_t)s + data;
-	if (sum < INT_MIN || sum > INT_MAX) exception(Overflow);
+	if (overflow) {
+		exception(Overflow);
+		return;
+	}
 
-	set_reg(rt, (uint32_t)sum);
+	set_reg(rt, result);
 }
 
 void CPU::op_j()
 {
-	uint32_t addr = instr.imm_jump();
+	uint32_t addr = instr.j_type.target;
 	next_pc = (pc & 0xf0000000) | (addr << 2);
 	
 	should_branch = true;
@@ -319,9 +264,9 @@ void CPU::op_j()
 
 void CPU::op_or()
 {
-	auto rs = instr.rs();
-	auto rt = instr.rt();
-	auto rd = instr.rd();
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
+	auto rd = instr.r_type.rd;
 
 	uint32_t val = get_reg(rs) | get_reg(rt);
 	set_reg(rd, val);
@@ -329,22 +274,25 @@ void CPU::op_or()
 
 void CPU::op_cop0()
 {
-	switch (instr.cop_op()) {
-		case 0b00000: op_mfc0(); 
+	switch (instr.r_type.rs) {
+		case 0b00000: 
+			op_mfc0(); 
 			break;
-		case 0b00100: op_mtc0(); 
+		case 0b00100: 
+			op_mtc0(); 
 			break;
-		case 0b10000: op_rfe(); 
+		case 0b10000: 
+			op_rfe(); 
 			break;
 		default: 
-			panic("Cop0 unhanled opcode: 0x", instr.cop_op());
+			panic("Cop0 unhanled opcode: 0x", instr.r_type.rs);
 	}
 }
 
 void CPU::op_mfc0()
 {
-	auto cpu_r = instr.rt();
-	auto cop_r = instr.rd().index;
+	auto cpu_r = instr.r_type.rt;
+	auto cop_r = instr.r_type.rd;
 	
 	uint32_t val = cop0.regs[cop_r];
 	load = std::make_pair(cpu_r, val);
@@ -352,8 +300,8 @@ void CPU::op_mfc0()
 
 void CPU::op_mtc0()
 {
-	auto cpu_r = instr.rt();
-	auto cop_r = instr.rd().index;
+	auto cpu_r = instr.r_type.rt;
+	auto cop_r = instr.r_type.rd;
 
 	uint32_t val = get_reg(cpu_r);
 	cop0.regs[cop_r] = val;
@@ -366,7 +314,7 @@ void CPU::op_cop1()
 
 void CPU::op_cop2()
 {
-	panic("Unhandled GTE instruction: ", instr.opcode);
+	panic("Unhandled GTE instruction: ", instr.raw);
 }
 
 void CPU::op_cop3()
@@ -376,9 +324,9 @@ void CPU::op_cop3()
 
 void CPU::op_bne()
 {
-	auto offset = instr.simm();
-	auto rs = instr.rs();
-	auto rt = instr.rt();
+	auto offset = (int16_t)instr.i_type.data;
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
 	if (get_reg(rs) != get_reg(rt))
 		branch(offset);
@@ -403,43 +351,49 @@ void CPU::op_rfe()
 
 void CPU::op_lhu()
 {
-	auto data = instr.simm();
-	auto rt = instr.rt();
-	auto base = instr.rs();
+	auto data = (int16_t)instr.i_type.data;
+	auto rt = instr.r_type.rt;
+	auto base = instr.r_type.rs;
 
 	uint32_t addr = get_reg(base) + data;
 	
-	if (addr % 2 == 0)
-		load = std::make_pair(rt, (uint32_t)read<uint16_t>(addr));
-	else
+	if (addr % 2 == 0) {
+		uint16_t val = read<uint16_t>(addr);
+		load = std::make_pair(rt, (uint32_t)val);
+	}
+	else {
 		exception(ReadError);
+	}
 }
 
 void CPU::op_lh()
 {
-	auto offset = instr.simm();
-	auto base = instr.rs();
-	auto rt = instr.rt();
+	auto offset = (int16_t)instr.i_type.data;
+	auto base = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
 	uint32_t addr = get_reg(base) + offset;
-	int16_t val = static_cast<int16_t>(read<uint16_t>(addr));
-	if (addr % 2 == 0)
+
+	if (addr % 2 == 0) {
+		int16_t val = (int16_t)read<uint16_t>(addr);
 		load = std::make_pair(rt, (uint32_t)val);
-	else
+	}
+	else {
 		exception(ReadError);
+	}
 }
 
 void CPU::op_lwl()
 {
-	auto data = instr.simm();
-	auto rs = instr.rs();
-	auto rt = instr.rt();
+	auto data = (int16_t)instr.i_type.data;
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
 	uint32_t addr = get_reg(rs) + data;
-	uint32_t cur_v = out_regs[rt.index];
+	uint32_t cur_v = out_regs[rt];
 
 	uint32_t aligned_addr = addr & ~3;
-	uint32_t aligned_word = read<uint32_t>(aligned_addr);
+	uint32_t aligned_word = read(aligned_addr);
 
 	uint32_t val;
 	switch (addr & 0x3f) {
@@ -462,15 +416,15 @@ void CPU::op_lwl()
 
 void CPU::op_lwr()
 {
-	auto data = instr.simm();
-	auto rs = instr.rs();
-	auto rt = instr.rt();
+	auto data = (int16_t)instr.i_type.data;
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
 	uint32_t addr = get_reg(rs) + data;
-	uint32_t cur_v = out_regs[rt.index];
+	uint32_t cur_v = out_regs[rt];
 
 	uint32_t aligned_addr = addr & ~3;
-	uint32_t aligned_word = read<uint32_t>(aligned_addr);
+	uint32_t aligned_word = read(aligned_addr);
 
 	uint32_t val;
 	switch (addr & 0x3f) {
@@ -493,15 +447,15 @@ void CPU::op_lwr()
 
 void CPU::op_swl()
 {
-	auto data = instr.simm();
-	auto rs = instr.rs();
-	auto rt = instr.rt();
+	auto data = (int16_t)instr.i_type.data;
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
 	uint32_t addr = get_reg(rs) + data;
 	uint32_t val = get_reg(rt);
 
 	uint32_t aligned_addr = addr & ~3;
-	uint32_t cur_mem = read<uint32_t>(aligned_addr);
+	uint32_t cur_mem = read(aligned_addr);
 
 	uint32_t memory;
 	switch (addr & 3) {
@@ -524,15 +478,15 @@ void CPU::op_swl()
 
 void CPU::op_swr()
 {
-	auto data = instr.simm();
-	auto rs = instr.rs();
-	auto rt = instr.rt();
+	auto data = (int16_t)instr.i_type.data;
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
 	uint32_t addr = get_reg(rs) + data;
 	uint32_t val = get_reg(rt);
 
 	uint32_t aligned_addr = addr & ~3;
-	uint32_t cur_mem = read<uint32_t>(aligned_addr);
+	uint32_t cur_mem = read(aligned_addr);
 
 	uint32_t memory;
 	switch (addr & 3) {
@@ -600,9 +554,9 @@ void CPU::op_illegal()
 
 void CPU::op_sltu()
 {
-	auto rd = instr.rd();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto rd = instr.r_type.rd;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
 	uint32_t val = get_reg(rs) < get_reg(rt);
 	set_reg(rd, val);
@@ -610,9 +564,9 @@ void CPU::op_sltu()
 
 void CPU::op_addu()
 {
-	auto rs = instr.rs();
-	auto rt = instr.rt();
-	auto rd = instr.rd();
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
+	auto rd = instr.r_type.rd;
 
 	uint32_t v = get_reg(rs) + get_reg(rt);
 	set_reg(rd, v);
@@ -620,12 +574,12 @@ void CPU::op_addu()
 
 void CPU::op_sh()
 {
-	auto offset = instr.simm();
-	auto base = instr.rs();
-	auto rt = instr.rt();
+	auto offset = (int16_t)instr.i_type.data;
+	auto base = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
 	uint32_t addr = get_reg(base) + offset;
-	uint16_t data = static_cast<uint16_t>(get_reg(rt));
+	uint16_t data = (uint16_t)get_reg(rt);
 	
 	if (addr % 2 == 0)
 		write<uint16_t>(addr, data);
@@ -641,9 +595,9 @@ void CPU::op_jal()
 
 void CPU::op_andi()
 {
-	auto rt = instr.rt();
-	auto rs = instr.rs();
-	auto imm = instr.imm();
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
+	auto imm = instr.i_type.data;
 
 	uint32_t val = get_reg(rs) & imm;
 	set_reg(rt, val);
@@ -651,18 +605,19 @@ void CPU::op_andi()
 
 void CPU::op_sb()
 {
-	auto offset = instr.simm();
-	auto rt = instr.rt();
-	auto base = instr.rs();
+	auto offset = (int16_t)instr.i_type.data;
+	auto rt = instr.r_type.rt;
+	auto base = instr.r_type.rs;
 
 	uint32_t addr = get_reg(base) + offset;
-	uint8_t data = static_cast<uint8_t>(get_reg(rt));
+	uint8_t data = (uint8_t)get_reg(rt);
+
 	write<uint8_t>(addr, data);
 }
 
 void CPU::op_jr()
 {
-	auto rs = instr.rs();
+	auto rs = instr.r_type.rs;
 	next_pc = get_reg(rs);
 
 	should_branch = true;
@@ -670,9 +625,9 @@ void CPU::op_jr()
 
 void CPU::op_lb()
 {
-	auto offset = instr.simm();
-	auto base = instr.rs();
-	auto rt = instr.rt();
+	auto offset = (int16_t)instr.i_type.data;
+	auto base = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
 	uint32_t addr = get_reg(base) + offset;
 	int8_t data = (int8_t)read<uint8_t>(addr);
@@ -681,9 +636,9 @@ void CPU::op_lb()
 
 void CPU::op_beq()
 {
-	auto offset = instr.simm();
-	auto rs = instr.rs();
-	auto rt = instr.rt();
+	auto offset = (int16_t)instr.i_type.data;
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
 	if (get_reg(rs) == get_reg(rt))
 		branch(offset);
@@ -691,9 +646,9 @@ void CPU::op_beq()
 
 void CPU::op_and()
 {
-	auto rs = instr.rs();
-	auto rt = instr.rt();
-	auto rd = instr.rd();
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
+	auto rd = instr.r_type.rd;
 
 	uint32_t val = get_reg(rs) & get_reg(rt);
 	set_reg(rd, val);
@@ -701,47 +656,49 @@ void CPU::op_and()
 
 void CPU::op_add()
 {
-	auto rs = instr.rs();
-	auto rt = instr.rt();
-	auto rd = instr.rd();
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
+	auto rd = instr.r_type.rd;
 
-	uint32_t v = get_reg(rs) + get_reg(rt);
-	set_reg(rd, v);
+	uint32_t v1 = get_reg(rs);
+	uint32_t v2 = get_reg(rt);
+	
+	uint32_t result = v1 + v2;
+	bool overflow = ((~(v1 ^ v2)) & (v1 ^ result)) & 0x80000000;
 
-	int32_t s = get_reg(rs);
-	int32_t t = get_reg(rt);
+	if (overflow) {
+		exception(Overflow);
+		return;
+	}
 
-	int64_t sum = s + t;
-	if (sum < INT_MIN || sum > INT_MAX) exception(Overflow);
-
-	set_reg(rd, (uint32_t)sum);
+	set_reg(rd, result);
 }
 
 void CPU::op_bgtz()
 {
-	auto offset = instr.simm();
-	auto rs = instr.rs();
+	auto offset = (int16_t)instr.i_type.data;
+	auto rs = instr.r_type.rs;
 
-	int32_t val = static_cast<int32_t>(get_reg(rs));
+	int32_t val = (int32_t)get_reg(rs);
 	if (val > 0)
 		branch(offset);
 }
 
 void CPU::op_blez()
 {
-	auto offset = instr.simm();
-	auto rs = instr.rs();
+	auto offset = (int16_t)instr.i_type.data;
+	auto rs = instr.r_type.rs;
 	
-	int32_t val = static_cast<int32_t>(get_reg(rs));
+	int32_t val = (int32_t)get_reg(rs);
 	if (val <= 0)
 		branch(offset);
 }
 
 void CPU::op_lbu()
 {
-	auto data = instr.simm();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto data = (int16_t)instr.i_type.data;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
 	uint32_t addr = get_reg(rs) + data;
 	uint8_t val = read<uint8_t>(addr);
@@ -751,8 +708,8 @@ void CPU::op_lbu()
 
 void CPU::op_jalr()
 {
-	auto rd = instr.rd();
-	auto rs = instr.rs();
+	auto rd = instr.r_type.rd;
+	auto rs = instr.r_type.rs;
 
 	set_reg(rd, next_pc);
 	next_pc = get_reg(rs);
@@ -762,13 +719,13 @@ void CPU::op_jalr()
 
 void CPU::op_bxx()
 {
-	auto i = instr.simm();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto i = (int16_t)instr.i_type.data;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
-	bool isbgez = (instr.opcode >> 16) & 1;
-	bool islink = (instr.opcode >> 17) & 0xf == 8;
-	int32_t v = static_cast<int32_t>(get_reg(rs));
+	bool isbgez = instr.r_type.rt & 1;
+	bool islink = ((instr.raw >> 17) & 0xf) == 8;
+	int32_t v = (int32_t)get_reg(rs);
 
 	uint32_t test = v < 0;
 	test ^= isbgez;
@@ -783,19 +740,19 @@ void CPU::op_bxx()
 
 void CPU::op_slti()
 {
-	int32_t i = static_cast<int32_t>(instr.simm());
-	auto rs = instr.rs();
-	auto rt = instr.rt();
+	int32_t i = (int16_t)instr.i_type.data;
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
-	auto v = static_cast<int32_t>(get_reg(rs)) < i;
+	bool v = (int32_t)get_reg(rs) < i;
 	set_reg(rt, (uint32_t)v);
 }
 
 void CPU::op_subu()
 {
-	auto rd = instr.rd();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto rd = instr.r_type.rd;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
 	uint32_t val = get_reg(rs) - get_reg(rt);
 	set_reg(rd, val);
@@ -803,9 +760,9 @@ void CPU::op_subu()
 
 void CPU::op_sra()
 {
-	auto i = instr.shift();
-	auto rd = instr.rd();
-	auto rt = instr.rt();
+	auto i = instr.r_type.shamt;
+	auto rd = instr.r_type.rd;
+	auto rt = instr.r_type.rt;
 
 	auto  val = (int32_t)get_reg(rt) >> i;
 	set_reg(rd, (uint32_t)val);
@@ -813,8 +770,8 @@ void CPU::op_sra()
 
 void CPU::op_div()
 {
-	auto rs = instr.rs();
-	auto rt = instr.rt();
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
 	auto n = (int32_t)get_reg(rs);
 	auto d = (int32_t)get_reg(rt);
@@ -843,15 +800,15 @@ void CPU::op_div()
 
 void CPU::op_mlfo()
 {
-	auto rd = instr.rd();
+	auto rd = instr.r_type.rd;
 	set_reg(rd, lo);
 }
 
 void CPU::op_nor()
 {
-	auto rs = instr.rs();
-	auto rt = instr.rt();
-	auto rd = instr.rd();
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
+	auto rd = instr.r_type.rd;
 
 	uint32_t val = !(get_reg(rs) | get_reg(rt));
 	set_reg(rd, val);
@@ -859,9 +816,9 @@ void CPU::op_nor()
 
 void CPU::op_slt()
 {
-	auto rd = instr.rd();
-	auto rs = instr.rs();
-	auto rt = instr.rt();
+	auto rd = instr.r_type.rd;
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
 	int32_t t = static_cast<int32_t>(get_reg(rt));
 	int32_t s = static_cast<int32_t>(get_reg(rs));
@@ -872,9 +829,9 @@ void CPU::op_slt()
 
 void CPU::op_sltiu()
 {
-	auto data = instr.simm();
-	auto rs = instr.rs();
-	auto rt = instr.rt();
+	auto data = (int16_t)instr.i_type.data;
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
 
 	uint32_t val = get_reg(rs) < data;
 	set_reg(rt, val);
@@ -882,9 +839,9 @@ void CPU::op_sltiu()
 
 void CPU::op_sub()
 {
-	auto rd = instr.rd();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto rd = instr.r_type.rd;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
 	int64_t val = (int64_t)get_reg(rs) - (int64_t)get_reg(rt);
 	if (val < INT_MIN || val > INT_MAX) exception(Overflow);
@@ -893,9 +850,9 @@ void CPU::op_sub()
 
 void CPU::op_xor()
 {
-	auto rs = instr.rs();
-	auto rt = instr.rt();
-	auto rd = instr.rd();
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
+	auto rd = instr.r_type.rd;
 
 	uint32_t val = get_reg(rs) ^ get_reg(rt);
 	set_reg(rd, val);
@@ -903,9 +860,9 @@ void CPU::op_xor()
 
 void CPU::op_xori()
 {
-	auto rs = instr.rs();
-	auto rt = instr.rt();
-	auto data = instr.imm();
+	auto rs = instr.r_type.rs;
+	auto rt = instr.r_type.rt;
+	auto data = instr.i_type.data;
 
 	uint32_t val = get_reg(rs) ^ data;
 	set_reg(rt, val);
@@ -913,9 +870,9 @@ void CPU::op_xori()
 
 void CPU::op_sllv()
 {
-	auto rd = instr.rd();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto rd = instr.r_type.rd;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
 	uint32_t val = get_reg(rt) << (get_reg(rs) & 0x1f);
 	set_reg(rd, val);
@@ -923,9 +880,9 @@ void CPU::op_sllv()
 
 void CPU::op_srav()
 {
-	auto rd = instr.rd();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto rd = instr.r_type.rd;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 	
 	int32_t val = (int32_t)get_reg(rt) >> (get_reg(rs) & 0x1f);
 	set_reg(rd, (uint32_t)val);
@@ -933,9 +890,9 @@ void CPU::op_srav()
 
 void CPU::op_srl()
 {
-	auto i = instr.shift();
-	auto rt = instr.rt();
-	auto rd = instr.rd();
+	auto i = instr.r_type.shamt;
+	auto rt = instr.r_type.rt;
+	auto rd = instr.r_type.rd;
 
 	uint32_t val = get_reg(rt) >> i;
 	set_reg(rd, val);
@@ -943,9 +900,9 @@ void CPU::op_srl()
 
 void CPU::op_srlv()
 {
-	auto rd = instr.rd();
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto rd = instr.r_type.rd;
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
 	uint32_t val = get_reg(rt) >> (get_reg(rs) & 0x1f);
 	set_reg(rd, val);
@@ -953,8 +910,8 @@ void CPU::op_srlv()
 
 void CPU::op_divu()
 {
-	auto s = instr.rs();
-	auto t = instr.rt();
+	auto s = instr.r_type.rs;
+	auto t = instr.r_type.rt;
 	
 	auto n = get_reg(s);
 	auto d = get_reg(t);
@@ -971,32 +928,32 @@ void CPU::op_divu()
 
 void CPU::op_mfhi()
 {
-	auto rd = instr.rd();
+	auto rd = instr.r_type.rd;
 	set_reg(rd, hi);
 }
 
 void CPU::op_mflo()
 {
-	auto rd = instr.rd();
+	auto rd = instr.r_type.rd;
 	set_reg(rd, lo);
 }
 
 void CPU::op_mthi()
 {
-	auto rs = instr.rs();
+	auto rs = instr.r_type.rs;
 	hi = get_reg(rs);
 }
 
 void CPU::op_mtlo()
 {
-	auto rs = instr.rs();
+	auto rs = instr.r_type.rs;
 	lo = get_reg(rs);
 }
 
 void CPU::op_mult()
 {
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
 	int64_t v1 = (int32_t)get_reg(rs);
 	int64_t v2 = (int32_t)get_reg(rt);
@@ -1008,8 +965,8 @@ void CPU::op_mult()
 
 void CPU::op_multu()
 {
-	auto rt = instr.rt();
-	auto rs = instr.rs();
+	auto rt = instr.r_type.rt;
+	auto rs = instr.r_type.rs;
 
 	uint64_t v1 = get_reg(rs);
 	uint64_t v2 = get_reg(rt);

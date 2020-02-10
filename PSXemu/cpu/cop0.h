@@ -2,13 +2,14 @@
 #include <cstdint>
 
 enum ExceptionType {
+	Interrput = 0x0,
 	ReadError = 0x4,
 	WriteError = 0x5,
 	SysCall = 0x8,
-	Overflow = 0xc,
 	Break = 0x9,
-	CopError = 0xb,
 	IllegalInstr = 0xa,
+	CopError = 0xb,
+	Overflow = 0xc
 };
 
 union Cop0STAT {

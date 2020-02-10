@@ -89,6 +89,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="cpu\opcodes.cpp" />
     <ClCompile Include="cpu\util.cpp" />
     <ClCompile Include="cpu\cpu.cpp" />
     <ClCompile Include="devices\timer.cpp" />

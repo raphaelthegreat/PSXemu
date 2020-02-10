@@ -51,8 +51,7 @@ T Bus::read(uint32_t addr)
 			panic("Unhandled GPU read at offset 0x", offset.value());
 	}
 	if (auto offset = TIMERS.contains(abs_addr); offset.has_value()) {
-		uint32_t off = (offset.value() & 0x0f) >> 4;
-		return timers[off].read(offset.value());
+		return timers.read(offset.value());
 	}
 	if (auto offset = DMA.contains(abs_addr); offset.has_value()) {
 		printf("DMA read at address: 0x%x\n", addr);
@@ -82,8 +81,7 @@ void Bus::write(uint32_t addr, T data)
 	uint32_t abs_addr = physical_addr(addr);
 
 	if (auto offset = TIMERS.contains(abs_addr); offset.has_value()) { // Ignore Timer write
-		uint32_t off = (offset.value() & 0x0f) >> 4;
-		return timers[off].write(offset.value(), data);
+		return timers.write(offset.value(), data);
 	}
 	else if (auto offset = EXPANSION_2.contains(abs_addr); offset.has_value()) // Ignore expansion 2 writes
 		return;

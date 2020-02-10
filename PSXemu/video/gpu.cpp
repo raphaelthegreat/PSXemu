@@ -2,33 +2,6 @@
 #include <cpu/util.h>
 #include <video/renderer.h>
 
-uint8_t VRAMLine::get4bit(uint32_t index)
-{
-	uint32_t i = std::floor(index / 2);
-	uint32_t b = index % 2;
-
-	return (data[i] & (0xf << 4 * b)) >> 4 * b;
-}
-
-uint8_t VRAMLine::get8bit(uint32_t index)
-{
-	uint32_t i = index;
-	return data[i];
-}
-
-uint16_t VRAMLine::get16bit(uint32_t index)
-{
-	uint32_t i = index;
-	return data[i] | (data[i + 1] << 8);
-}
-
-uint32_t VRAMLine::get24bit(uint32_t index)
-{
-	uint32_t i = std::floor(index / 3);
-	/* TODO: this will overflow if index = 682. */
-	return data[i] | (data[i + 1] << 8) | (data[i + 2] << 16);
-}
-
 /* GPU class implementation */
 GPU::GPU(Renderer* renderer)
 {
@@ -36,8 +9,6 @@ GPU::GPU(Renderer* renderer)
 	
 	status.raw = 0;
 	image_load = false;
-	status.dma_dir = DMADirection::Off;
-
 	drawing_area_left = 0;
 	drawing_area_top = 0;
 	drawing_area_right = 0;
@@ -50,13 +21,11 @@ GPU::GPU(Renderer* renderer)
 	display_line_end = 0x100;
 	remaining_attribs = 0;
 	command_handler = BIND(gp0_nop);
-	image_load = false;
 
 	texture_window_x_mask = 0;
 	texture_window_y_mask = 0;
 	texture_window_x_offset = 0;
 	texture_window_y_offset = 0;
-
 	texture_x_flip = false;
 	texture_y_flip = false;
 }
@@ -208,13 +177,14 @@ void GPU::gp1_command(uint32_t data)
 	case Vertical_Display_Range:
 		return gp1_vertical_display_range(data);
 	case Display_Mode:
-			return gp1_display_mode(data);
+		return gp1_display_mode(data);
 	default:
 		printf("Unhandled GP1 command: 0x%x\n", (uint32_t)command);
 		exit(0);
 	}
 }
 
+/* Execute a NOP command. */
 void GPU::gp0_nop()
 {
 	printf("GPU Nop\n");
@@ -226,7 +196,6 @@ void GPU::gp0_mono_quad()
 	printf("Draw Mono Quad\n");
 
 	Color color = Color::from_gpu(command_fifo[0]);
-	
 	Verts pos =
 	{
 		Pos2::from_gpu(command_fifo[1]),

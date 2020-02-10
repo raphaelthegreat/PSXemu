@@ -1,36 +1,61 @@
 #include "timer.h"
 #include <cstdio>
 
-void Timer::step(uint32_t cycles)
+void Timers::step(uint32_t cycles)
 {
   
 }
 
-void Timer::write(uint32_t offset, uint32_t val)
+void Timers::reset()
 {
-	uint32_t off = offset & 0xf;
-	printf("Timer write to offset: 0x%x with data: 0x%x\n", off, val);
-	
-	if (off == 0)
-		value.raw = val;
-	else if (off == 4) {
-		control.raw = val;
-		/* Counter value gets reset on counter mode write. */
-		value.value = 0;
+	for (auto& timer : timers) {
+		timer.counter.raw = 0;
+		timer.counting_enabled = true;
+		timer.external_counting_enabled = false;
+		timer.gate = false;
+		timer.mode.raw = 0;
+		timer.target.raw = 0;
 	}
-	else if (off == 8)
-		target.raw = val;
 }
 
-uint32_t Timer::read(uint32_t offset)
+void Timers::write(uint32_t offset, uint32_t val)
 {
+	uint32_t timer = (offset >> 4) & 3;
 	uint32_t off = offset & 0xf;
-	printf("Timer read to offset: 0x%x\n", off);
-	
-	if (off == 0)
-		return value.raw;
-	else if (off == 4)
-		return control.raw;
-	else if (off == 8)
-		return target.raw;
+	printf("Write to timer: %d at offset: %d with data: 0x%x\n", timer, off, val);
+
+	CounterState& s = timers[timer];
+
+	switch (off) {
+	case 0: /* Write to Counter value. */
+		s.counter.raw = val;
+		break;
+	case 4: /* Write to Counter control. */
+		s.mode.raw = val;
+		s.use_external_clock = (s.mode.clock_source & (timer == 2 ? 2 : 1)) != 0;
+		s.counter.value = 0; /* Counter gets reset after write to Counter control. */
+		break;
+	case 8: /* Write to Counter target. */
+		s.target.raw = val;
+		break;
+	}
+}
+
+uint32_t Timers::read(uint32_t offset)
+{
+	uint32_t timer = (offset >> 4) & 3;
+	uint32_t off = offset & 0xf;
+	printf("Read to timer: %d at offset: %d\n", timer, off);
+
+	CounterState& s = timers[timer];
+
+	switch (off) {
+	case 0: /* Write to Counter value. */
+		return s.counter.raw;
+		break;
+	case 4: /* Write to Counter control. */
+		return s.mode.raw;
+	case 8: /* Write to Counter target. */
+		return s.target.raw;
+	}
 }

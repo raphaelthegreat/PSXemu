@@ -56,7 +56,7 @@ public:
 
 	DMAController dma;
 	CacheControl cache_ctrl;
-	Timer timers[3] = {};
+	Timers timers;
 
 	Renderer* gl_renderer;
 

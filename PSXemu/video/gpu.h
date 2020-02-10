@@ -45,24 +45,7 @@ enum class TextureMethod {
 
 typedef std::function<void()> GP0Func;
 
-struct TCacheLine {
-	uint8_t data[8];
-};
-
-struct VRAMLine {
-public:
-	VRAMLine() = default;
-	~VRAMLine() = default;
-
-	uint8_t get4bit(uint32_t index);
-	uint8_t get8bit(uint32_t index);
-	uint16_t get16bit(uint32_t index);
-	uint32_t get24bit(uint32_t index);
-
-private:
-	uint8_t data[2048] = { 0 };
-};
-
+/* GPU class. */
 class Renderer;
 class GPU {
 public:
@@ -132,9 +115,6 @@ private:
 
 	bool image_load;
 	Renderer* gl_renderer;
-
-	VRAMLine vram[512];
-	TCacheLine texture_cache[256];
 
 	/* Intermediate texture storage. */
 	TextureBuffer buffer;
