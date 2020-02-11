@@ -2,7 +2,7 @@
 #include <cstdint>
 
 enum ExceptionType {
-	Interrput = 0x0,
+	Irq = 0x0,
 	ReadError = 0x4,
 	WriteError = 0x5,
 	SysCall = 0x8,
@@ -40,12 +40,12 @@ union Cop0CAUSE {
 	uint32_t raw;
 	
 	struct {
-		uint32_t reserved1 : 2;
+		uint32_t : 2;
 		uint32_t exc_code : 5;	/* Exception Code */
-		uint32_t reserved2 : 1;
+		uint32_t : 1;
 		uint32_t Sw : 2;		/* Software Interrupts */
 		uint32_t IP : 6;		/* Interrupt Pending */
-		uint32_t reserved3 : 12;
+		uint32_t : 12;
 		uint32_t CE : 2;		/* Coprocessor Error */
 		uint32_t BT : 1;		/* Branch Taken */
 		uint32_t BD : 1;		/* Branch Delay */

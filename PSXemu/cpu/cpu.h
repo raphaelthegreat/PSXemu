@@ -8,6 +8,8 @@
 #include <cpu/cop0.h>
 #include <memory/bus.h>
 
+#define CPU_FREQ 33.8685
+
 typedef std::function<void()> CPUinstr;
 typedef std::pair<uint32_t, uint32_t> LoadDelay;
 typedef std::unordered_map<uint32_t, CPUinstr> LookupTable;
@@ -22,8 +24,8 @@ const Range KSEG2 = Range(0xC0000000, 1024 * 1024 * 1024);
 class Renderer;
 class CPU {
 public:
-	CPU(Renderer* renderer);
-	~CPU();
+	CPU(Renderer* renderer, Bus* _bus);
+	~CPU() = default;
 
 	/* Flow control functions. */
 	void tick();
@@ -32,6 +34,9 @@ public:
 	void branch(uint32_t offset);
 	void exception(ExceptionType type);
 	void register_opcodes();
+
+	void set_ext_irq(bool val);
+	void trigger_irq(Interrupt irq);
 
 	/* Bus interface functions. */
 	template <typename T = uint32_t>

@@ -10,6 +10,11 @@ public:
 	void tick();
 
 private:
-	unique_ptr<CPU> psx_cpu;
+	unique_ptr<CPU> cpu;
+	unique_ptr<Bus> bus;
+	unique_ptr<GPU> gpu;
+
 	Renderer* gl_renderer;
+
+	uint32_t cycles_per_frame = 300;
 };

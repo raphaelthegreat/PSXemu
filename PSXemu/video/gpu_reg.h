@@ -61,6 +61,6 @@ union GPUSTAT {
 		uint32_t ready_vram : 1;
 		uint32_t ready_dma : 1;
 		uint32_t dma_dir : 2;
-		uint32_t even_odd_lines : 1;
+		uint32_t odd_lines : 1;
 	};
 };

@@ -2,28 +2,21 @@
 #include <cpu/util.h>
 #include <video/renderer.h>
 
-CPU::CPU(Renderer* _renderer) : 
+CPU::CPU(Renderer* _renderer, Bus* _bus) : 
 	load(std::make_pair(0, 0))
 {
 	renderer = _renderer;
+	bus = _bus;
 
 	memset(regs, 0, 32);
 	memset(out_regs, 0, 32);
 	memset(cop0.regs, 0, 64 * 4);
-
-	/* Create memory bus and load the bios. */
-	bus = new Bus("SCPH1001.BIN", renderer);
 	
 	/* Register opcodes. */
 	register_opcodes();
 
 	/* Reset CPU. */
 	reset();
-}
-
-CPU::~CPU()
-{
-	delete bus;
 }
 
 void CPU::reset()
@@ -63,9 +56,16 @@ void CPU::tick()
 	delay_slot = should_branch;
 	should_branch = false;
 
-	/* Execute fetched instruction. */
-	auto& handler = lookup[instr.r_type.opcode];
-	handler();
+	/* If any interrupt is pending execute it. */
+	if (bus->irq_manager.irq_pending()) {
+		/* IMPORTANT! TODO: Ignore interrupt when */
+		/* the next instruction is a GTE instuction. */
+		exception(Irq);
+	} 	/* Else execute fetched instruction. */
+	else {
+		auto& handler = lookup[instr.r_type.opcode];
+		handler();
+	}
 	
 	/* Copy modified registers. */
 	std::copy(out_regs, out_regs + 32, regs);
@@ -163,6 +163,15 @@ void CPU::exception(ExceptionType type)
 	/* Update PC to exception handler. */
 	pc = handler; 
 	next_pc = handler + 4;
+}
+
+void CPU::set_ext_irq(bool val)
+{
+	set_bit(cop0.cause.IP, 0, val);
+}
+
+void CPU::trigger_irq(Interrupt irq)
+{
 }
 
 void CPU::op_lui()

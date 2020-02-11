@@ -1,5 +1,6 @@
 #include "gpu.h"
 #include <cpu/util.h>
+#include <cpu/cpu.h>
 #include <video/renderer.h>
 
 /* GPU class implementation */
@@ -28,6 +29,10 @@ GPU::GPU(Renderer* renderer)
 	texture_window_y_offset = 0;
 	texture_x_flip = false;
 	texture_y_flip = false;
+	in_vblank = false;
+
+	dot_clock = 0;
+	frame_count = 0;
 }
 
 uint32_t GPU::get_status()
@@ -64,6 +69,73 @@ uint32_t GPU::get_read()
 {
 	printf("GPURead!");
 	return 0;
+}
+
+uint16_t GPU::video_mode_timings()
+{
+	if (status.video_mode == VideoMode::NTSC)
+		return 3412;
+	else
+		return 3404;
+}
+
+uint16_t GPU::lines_per_frame()
+{
+	if (status.video_mode == VideoMode::NTSC)
+		return 263;
+	else
+		return 314;
+}
+
+void GPU::tick(uint32_t cycles)
+{
+	uint32_t max_cycles = video_mode_timings();
+	uint32_t max_lines = lines_per_frame();
+	VerticalRes vres = (VerticalRes)status.vres;
+
+	/* Add the cycles to GPU pixel clock (this is in pixels). */
+	dot_clock += cycles;
+
+	/* Get the number of generated scanlines. */
+	uint32_t new_lines = dot_clock / max_cycles;
+
+	/* No new scanlines where generated. */
+	if (new_lines == 0) 
+		return;
+
+	dot_clock %= max_cycles;
+
+	/* Add the new scanlines. */
+	scanline += new_lines;
+
+	/* We are still drawing the frame (not in vblank). */
+	if (scanline < VBLANK_START - 1) {
+		if (vres == VerticalRes::V480 && status.vertical_interlace)
+			status.odd_lines = (frame_count % 2) != 0;
+		else
+			status.odd_lines = (scanline % 2) != 0;
+	}
+	else {
+		status.odd_lines = false;
+	}
+
+	/* We have finished drawing and in vblank. */
+	if (scanline > max_lines - 1) {
+		scanline = 0;
+		frame_count++;
+		in_vblank = true;
+
+		/* Draw finished scene. */
+		gl_renderer->update();
+	}
+
+	in_vblank = false;
+	return;
+}
+
+bool GPU::is_vblank()
+{
+	return in_vblank;
 }
 
 void GPU::gp0_command(uint32_t data)
@@ -266,7 +338,6 @@ void GPU::gp0_drawing_offset()
 	drawing_x_offset = ((int16_t)(x << 5)) >> 5;
 	drawing_y_offset = ((int16_t)(y << 5)) >> 5;
 	
-	gl_renderer->update();
 	gl_renderer->set_draw_offset(drawing_x_offset, drawing_y_offset);
 }
 

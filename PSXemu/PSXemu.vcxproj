@@ -89,6 +89,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="devices\irq.cpp" />
     <ClCompile Include="cpu\opcodes.cpp" />
     <ClCompile Include="cpu\util.cpp" />
     <ClCompile Include="cpu\cpu.cpp" />
@@ -109,6 +110,7 @@
     <ClInclude Include="cpu\cache.h" />
     <ClInclude Include="cpu\cop0.h" />
     <ClInclude Include="cpu\instr.h" />
+    <ClInclude Include="devices\irq.h" />
     <ClInclude Include="cpu\util.h" />
     <ClInclude Include="cpu\cpu.h" />
     <ClInclude Include="devices\header.h" />

@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #define BIND(x) std::bind(&GPU::x, this)
+#define VBLANK_START 263
 
 enum GP0Command {
 	Nop = 0x0,
@@ -54,9 +55,22 @@ public:
 	uint32_t get_status();
 	uint32_t get_read();
 
+	/* Return clock timings based on PAL/NTSC. */
+	uint16_t video_mode_timings();
+	/* Return vertical lines per frame based on PAL/NTSC. */
+	uint16_t lines_per_frame();
+
+	/* Emulate GPU cycles. */
+	void tick(uint32_t cycles);
+
+	/* Check if the GPU is in vblank. */
+	bool is_vblank();
+
+	/* GPU write. */
 	void gp0_command(uint32_t data);
 	void gp1_command(uint32_t data);
 
+	/* GP0 commands. */
 	void gp0_nop();
 	void gp0_mono_quad();
 	void gp0_draw_mode();
@@ -72,6 +86,7 @@ public:
 	void gp0_shaded_quad_blend();
 	void gp0_shaded_trig();
 
+	/* GP1 commands. */
 	void gp1_reset(uint32_t data);
 	void gp1_display_mode(uint32_t data);
 	void gp1_dma_dir(uint32_t data);
@@ -108,12 +123,19 @@ private:
 	uint16_t display_line_start;
 	uint16_t display_line_end;
 
+	bool gp0_irq, vblank_irq;
+	uint16_t gpu_clock, scanline;
+	uint16_t gpu_clock_tick;
+
 	std::vector<uint32_t> command_fifo;
 	GP0Func command_handler;
 	GP0Func gp0_image_handler;
 	uint32_t remaining_attribs;
 
-	bool image_load;
+	uint32_t frame_count;
+	uint32_t dot_clock;
+
+	bool image_load, in_vblank;
 	Renderer* gl_renderer;
 
 	/* Intermediate texture storage. */

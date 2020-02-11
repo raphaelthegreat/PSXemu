@@ -41,13 +41,13 @@ uint32_t set_bit(uint32_t num, int b, bool v)
 void panic(const char* msg, const char* val)
 {
 	std::cerr << msg << val << '\n';
-	__debugbreak();
+	exit(0);
 }
 
 void panic(const char* msg, uint32_t val)
 {
 	std::cerr << msg << std::hex << val << '\n';
-	__debugbreak();
+	exit(0);
 }
 
 void log(const char* msg, uint32_t hexval)

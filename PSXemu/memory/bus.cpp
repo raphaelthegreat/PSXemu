@@ -1,6 +1,20 @@
 #include "bus.h"
 #include <video/renderer.h>
 
+const Range RAM = Range(0x00000000, 2048 * 1024);
+const Range BIOS = Range(0x1fc00000, 512 * 1024);
+const Range SYS_CONTROL = Range(0x1f801000, 36);
+const Range RAM_SIZE = Range(0x1f801060, 4);
+const Range CACHE_CONTROL = Range(0xfffe0130, 4);
+const Range SPU = Range(0x1f801c00, 640);
+const Range EXPANSION_2 = Range(0x1f802000, 66);
+const Range EXPANSION_1 = Range(0x1f000000, 512 * 1024);
+const Range IRQ_CONTROL = Range(0x1f801070, 8);
+const Range TIMERS = Range(0x1f801100, 0x30);
+const Range DMA = Range(0x1f801080, 0x80);
+const Range GPU_RANGE = Range(0x1f801810, 8);
+
+
 std::optional<uint32_t> Range::contains(uint32_t addr) const
 {
     if (addr >= start && addr < start + length) {
@@ -11,13 +25,24 @@ std::optional<uint32_t> Range::contains(uint32_t addr) const
 }
 
 Bus::Bus(std::string bios_path, Renderer* renderer) :
-    dma(this)
+	dma(this)
 {
     gl_renderer = renderer;
     
+	/* Construct memory regions. */
     bios = std::make_unique<Bios>(bios_path);
     ram = std::make_unique<Ram>();
-    gpu = std::make_unique<GPU>(gl_renderer);
+}
+
+void Bus::set_cpu(CPU* _cpu)
+{
+	cpu = _cpu;
+	irq_manager.cpu = _cpu;
+}
+
+void Bus::set_gpu(GPU* _gpu)
+{
+	gpu = _gpu;
 }
 
 uint32_t Bus::physical_addr(uint32_t addr)
@@ -51,7 +76,10 @@ T Bus::read(uint32_t addr)
 			panic("Unhandled GPU read at offset 0x", offset.value());
 	}
 	if (auto offset = TIMERS.contains(abs_addr); offset.has_value()) {
-		return timers.read(offset.value());
+		uint32_t timer = (offset.value() >> 4) & 3;
+		uint32_t off = offset.value() & 0xf;
+
+		return timers[timer].read(off);
 	}
 	if (auto offset = DMA.contains(abs_addr); offset.has_value()) {
 		printf("DMA read at address: 0x%x\n", addr);
@@ -62,8 +90,7 @@ T Bus::read(uint32_t addr)
 	if (auto offset = RAM.contains(abs_addr); offset.has_value())
 		return ram->read<T>(offset.value());
 	if (auto offset = IRQ_CONTROL.contains(abs_addr); offset.has_value()) {
-		printf("IRQ control read: 0x%x\n", addr);
-		return 0;
+		return irq_manager.read(offset.value());
 	}
 
 	panic("Unhandled read to address: 0x", addr);
@@ -81,7 +108,10 @@ void Bus::write(uint32_t addr, T data)
 	uint32_t abs_addr = physical_addr(addr);
 
 	if (auto offset = TIMERS.contains(abs_addr); offset.has_value()) { // Ignore Timer write
-		return timers.write(offset.value(), data);
+		uint32_t timer = (offset.value() >> 4) & 3;
+		uint32_t off = offset.value() & 0xf;
+
+		return timers[timer].write(off, data);
 	}
 	else if (auto offset = EXPANSION_2.contains(abs_addr); offset.has_value()) // Ignore expansion 2 writes
 		return;
@@ -110,8 +140,7 @@ void Bus::write(uint32_t addr, T data)
 	else if (auto offset = RAM_SIZE.contains(abs_addr); offset.has_value()) // RAM_SIZE register
 		return;
 	else if (auto offset = IRQ_CONTROL.contains(abs_addr); offset.has_value()) {
-		printf("Unahandled IRQ control write to address: 0x%x\n", addr);
-		return;
+		return irq_manager.write(offset.value(), data);
 	}
 	else if (auto offset = SYS_CONTROL.contains(abs_addr); offset.has_value()) { // Expansion register
 		if (offset.value() == 0 && data != 0x1f000000)
