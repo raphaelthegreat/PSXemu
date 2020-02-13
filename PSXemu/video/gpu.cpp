@@ -2,6 +2,14 @@
 #include <cpu/util.h>
 #include <cpu/cpu.h>
 #include <video/renderer.h>
+#include <Windows.h>
+#include <gl/GLU.h>
+
+#pragma comment(lib, "glu32.lib")
+
+#define CMD_X(n)   (command_fifo[n] & 0x0000FFFF)
+#define CMD_Y(n)   (command_fifo[n] >> 16)
+#define COLOR16_REV(n)  glColor3f(((n) & 0x1F)/31.0, (((n) & 0x3E0) >> 5)/31.0,(((n) & 0x7C00) >> 10)/31.0);
 
 /* GPU class implementation */
 GPU::GPU(Renderer* renderer)
@@ -9,7 +17,7 @@ GPU::GPU(Renderer* renderer)
 	gl_renderer = renderer;
 	
 	status.raw = 0;
-	image_load = false;
+	gpu_mode = GPUMode::Command;
 	drawing_area_left = 0;
 	drawing_area_top = 0;
 	drawing_area_right = 0;
@@ -33,6 +41,10 @@ GPU::GPU(Renderer* renderer)
 
 	dot_clock = 0;
 	frame_count = 0;
+
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	gluOrtho2D(0.0, 1024.0, 768.0, 0.0);
 }
 
 uint32_t GPU::get_status()
@@ -67,7 +79,7 @@ uint32_t GPU::get_status()
 
 uint32_t GPU::get_read()
 {
-	printf("GPURead!");
+	printf("GPURead!\n");
 	return 0;
 }
 
@@ -109,7 +121,7 @@ void GPU::tick(uint32_t cycles)
 	scanline += new_lines;
 
 	/* We are still drawing the frame (not in vblank). */
-	if (scanline < VBLANK_START - 1) {
+	if (scanline < VBLANK_START) {
 		if (vres == VerticalRes::V480 && status.vertical_interlace)
 			status.odd_lines = (frame_count % 2) != 0;
 		else
@@ -120,13 +132,12 @@ void GPU::tick(uint32_t cycles)
 	}
 
 	/* We have finished drawing and in vblank. */
-	if (scanline > max_lines - 1) {
+	if (scanline > max_lines) {
 		scanline = 0;
 		frame_count++;
 		in_vblank = true;
 
 		/* Draw finished scene. */
-		gl_renderer->update();
 	}
 
 	in_vblank = false;
@@ -138,6 +149,43 @@ bool GPU::is_vblank()
 	return in_vblank;
 }
 
+void GPU::vram_load(uint16_t data)
+{
+	if (from_cpu.active == true) {
+		/* Write first halfword to vram. */
+		uint32_t vramx = from_cpu.start_x + from_cpu.x;
+		uint32_t vramy = from_cpu.start_y + from_cpu.y;
+
+		/* Write to vram. */
+		vram.write(vramx, vramy, data);
+
+		printf("Pixel write x: %d y: %d data: %d\n", vramx, vramy, data);
+
+		/* Increment 2D coords. */
+		from_cpu.x++;
+		if (from_cpu.x == from_cpu.width) {
+			/* Move to next vram line. */
+			from_cpu.x = 0;
+			from_cpu.y++;
+
+			/* Transfer complete. */
+			if (from_cpu.y == from_cpu.height) {
+				from_cpu.y = 0;
+				from_cpu.active = false;
+				gpu_mode = Command;
+			}
+		}
+	}
+}
+
+void GPU::vram_store(uint16_t data)
+{
+}
+
+void GPU::vram_copy(uint16_t data)
+{
+}
+
 void GPU::gp0_command(uint32_t data)
 {
 	/* Handle a new GPU command. */
@@ -146,7 +194,7 @@ void GPU::gp0_command(uint32_t data)
 
 		/* Number of operands and callback function of command. */
 		std::pair<uint32_t, GP0Func> handler;
-
+		if (command == GP0Command::Image_Load) __debugbreak();
 		/* Select the appropriate handler. */
 		switch (command) {
 		case Nop:
@@ -208,21 +256,39 @@ void GPU::gp0_command(uint32_t data)
 	remaining_attribs--;
 
 	/* Push attrib to command fifo (first attrib is always the command). */
-	if (!image_load) {
+	if (gpu_mode == Command) {
 		command_fifo.push_back(data);
 
 		/* Once we gether everything we need, execute the command. */
 		if (remaining_attribs == 0)
 			command_handler();
 	}
-	else { /* Push pixel to texture buffer. */
-		buffer.push_data(data);
-		
-		/* Push the final image to the renderer to be drawn. */
+	else {
+		/* Unpack batched pixels. */
+		uint16_t pixel1 = bit_range(data, 0, 16);
+		uint16_t pixel2 = bit_range(data, 16, 32);
+
+		uint32_t vramx = from_cpu.start_x + from_cpu.x;
+		uint32_t vramy = from_cpu.start_y + from_cpu.y;
+
+		if (vramx == 64 && vramy == 0) {
+			printf("%d\n", data);
+			__debugbreak();
+		}
+
+		/* Select vram operation to do. */
+		if (gpu_mode == VRAMLoad) {
+			vram_load(pixel1);
+			vram_load(pixel2);
+		}
+		else if (gpu_mode == VRAMStore)
+			vram_store(data);
+		else if (gpu_mode == VRAMCopy)
+			vram_copy(data);
+
+		/* Data transfer complete. */
 		if (remaining_attribs == 0) {
-			//gl_renderer->push_image(buffer);
-			buffer.pixels.clear();
-			image_load = false;
+			gpu_mode = Command;
 		}
 	}
 }
@@ -338,6 +404,7 @@ void GPU::gp0_drawing_offset()
 	drawing_x_offset = ((int16_t)(x << 5)) >> 5;
 	drawing_y_offset = ((int16_t)(y << 5)) >> 5;
 	
+	//gl_renderer->draw_scene();
 	gl_renderer->set_draw_offset(drawing_x_offset, drawing_y_offset);
 }
 
@@ -363,30 +430,48 @@ void GPU::gp0_image_load()
 
 	printf("GPU load image w:%d  h:%d\n", width, height);
 
+	for (int i = 0; i < command_fifo.size(); i++) {
+		printf("Attrib %d: 0x%x\n", i, command_fifo[i]);
+	}
+
 	/* Compute image surface. */
 	uint32_t imgsize = width * height;
 	/* Round to next even number. */
 	imgsize = (imgsize + 1) & ~1;
 
+	/* Set the remaining attributtes. */
+	/* This basically means that the next (pixel_count / 2) */
+	/* atrtibutes are pixels (pixels are batched and sent 2 at a time). */
 	remaining_attribs = imgsize / 2;
 
+	/* Unpack texture coords. */
 	uint32_t source_coord = command_fifo[1];
 	uint32_t coordx = bit_range(source_coord, 0, 16);
 	uint32_t coordy = bit_range(source_coord, 16, 32);
-	 
+
 	/* Is the image not 0 */
 	if (remaining_attribs > 0) {
-		buffer.pixels = std::vector<uint16_t>(imgsize);
-		buffer.width = width;
-		buffer.height = height;
-		buffer.top_left = std::make_pair(coordx, coordy);
+		printf("%d %d\n", coordx, coordy);
+
+		/* Image x/y in vram and width/height. */
+		from_cpu.start_x = coordx;
+		from_cpu.start_y = coordy;
+		from_cpu.width = width;
+		from_cpu.height = height;
+		from_cpu.pixel_count = remaining_attribs;
+		
+		from_cpu.x = 0;
+		from_cpu.y = 0;
+
+		/* Activate data mover. */
+		from_cpu.active = true;
 	}
 	else {
 		printf("GPU image size 0!\n");
 		exit(0);
 	}
 
-	image_load = true;
+	gpu_mode = VRAMLoad;
 }
 
 void GPU::gp0_image_store()
@@ -394,7 +479,7 @@ void GPU::gp0_image_store()
 	uint32_t res = command_fifo[2];
 	uint32_t width = bit_range(res, 0, 16);
 	uint32_t height = bit_range(res, 16, 32);
-
+	//__debugbreak();
 	printf("Unhandled image store: %d %d\n", width, height);
 }
 
@@ -425,18 +510,64 @@ void GPU::gp0_shaded_quad_blend()
 {
 	printf("Draw Shaded Quad with Blending!\n");
 
-	Verts pos =
-	{
-		Pos2::from_gpu(command_fifo[1]),
-		Pos2::from_gpu(command_fifo[3]),
-		Pos2::from_gpu(command_fifo[5]),
-		Pos2::from_gpu(command_fifo[7]),
-	};
-	
-	Color color(0x80, 0x80, 0x80);
-	Colors colors = { color, color, color, color };
+	uint32_t color = command_fifo[0];
 
-	gl_renderer->push_quad(pos, colors);
+	uint32_t r = color & 0xff;
+	uint32_t g = (color >> 8) & 0xff;
+	uint32_t b = (color >> 16) & 0xff;
+	
+	Pos2 verts[4];
+	
+	for (int i = 0; i < 4; i++) {
+		verts[i] = Pos2::from_gpu(command_fifo[i * 2 + 1]);
+	}
+
+	ClutAttrib clut;
+	TPageAttrib page;
+
+	clut.raw = command_fifo[2] >> 16;
+	page.raw = command_fifo[4] >> 16;
+	
+	uint32_t x = CMD_X(1);
+	uint32_t y = CMD_Y(1);
+
+	uint32_t w = (CMD_X(3) - x);
+	uint32_t h = (CMD_Y(7) - y);
+	uint32_t tx = page.page_x * 64;
+	uint32_t ty = page.page_y * 256;
+	
+	printf("X: %d Y: %d Width: %d Height: %d\n", x, y, w, h);
+	
+	uint32_t cx = clut.x * 16;
+	uint32_t cy = clut.y;
+	printf("CLUT: %d\n", clut.x);
+	uint32_t table[16];
+	printf("Tex mode: %d\n", status.texture_depth);
+	for (int i = 0; i < 16; i++) {
+		table[i] = vram.read(cx + i, cy);
+		printf("%d %d data: %d\n", cx + i, cy, table[i]);
+	}
+	
+	__debugbreak();
+	for (int i = 0; i < w / 4; i++) {
+		for (int j = 0; j < h; j++)
+		{
+			image[i * 4 + 0][j] = table[vram.buffer[tx + i][ty + j].ll];
+			image[i * 4 + 1][j] = table[vram.buffer[tx + i][ty + j].ml];
+			image[i * 4 + 2][j] = table[vram.buffer[tx + i][ty + j].mr];
+			image[i * 4 + 3][j] = table[vram.buffer[tx + i][ty + j].rr];
+		}
+	}
+
+	glBegin(GL_POINTS);
+	for (int i = 0; i < w; i++)
+		for (int j = 0; j < h; j++)
+		{
+			//if (image[i][j] == 0) continue;
+			COLOR16_REV(image[i][j]);
+			glVertex2i(x + i ,y + j);
+		}
+	glEnd();
 }
 
 void GPU::gp0_shaded_trig()
@@ -501,6 +632,8 @@ void GPU::gp1_display_mode(uint32_t data)
 
 	if (get_bit(data, 7) != 0)
 		panic("Unsupported display mode: 0x", data);
+
+	gl_renderer->update();
 }
 
 void GPU::gp1_dma_dir(uint32_t data)
@@ -562,5 +695,5 @@ void GPU::gp1_reset_cmd_buffer(uint32_t data)
 	printf("GPU GP1 reset command buffer\n");
 	command_fifo.clear();
 	remaining_attribs = 0;
-	image_load = false;
+	gpu_mode = Command;
 }

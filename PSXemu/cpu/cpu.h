@@ -131,6 +131,7 @@ template<typename T>
 inline void CPU::write(uint32_t addr, T data)
 {
 	if (cop0.sr.IsC) {
+		return;
 		CacheControl& cc = bus->cache_ctrl;
 		
 		Address address;

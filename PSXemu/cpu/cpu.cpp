@@ -57,7 +57,7 @@ void CPU::tick()
 	should_branch = false;
 
 	/* If any interrupt is pending execute it. */
-	if (bus->irq_manager.irq_pending()) {
+	if (false) {
 		/* IMPORTANT! TODO: Ignore interrupt when */
 		/* the next instruction is a GTE instuction. */
 		exception(Irq);
@@ -80,8 +80,10 @@ void CPU::fetch()
 	Address addr;
 	addr.raw = pc;
 
+	if (pc == 0x80050544) __debugbreak();
+
 	bool kseg1 = KSEG1.contains(pc).has_value();
-	if (!kseg1 && cc.is1) {
+	if (false) {
 
 		/* Fetch cache line and check it's validity. */
 		CacheLine& line = instr_cache[addr.cache_line];		
@@ -212,7 +214,7 @@ void CPU::op_lw()
 	auto data = (int16_t)instr.i_type.data;
 	auto rt = instr.r_type.rt;
 	auto rs = instr.r_type.rs;
-
+	
 	uint32_t s = get_reg(rs);
 	uint32_t addr = s + data;
 	

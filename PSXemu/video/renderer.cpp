@@ -13,105 +13,74 @@ Renderer::Renderer(int _width, int _height, std::string title)
 
 	width = _width; height = _height;
 	glfwSetFramebufferSizeCallback(window, resize_func);
-
-    shader = std::make_unique<Shader>();
-    
-    shader->load("shaders/vertex.vert", ShaderType::Vertex);
-    shader->load("shaders/fragment.frag", ShaderType::Fragment);
-    shader->build();
-
-    glGenVertexArrays(1, &vao);
-    glBindVertexArray(vao);
-
-    vertex_buffer = std::make_unique<Buffer<Pos2>>();
-    vertex_buffer->bind();
-
-    glVertexAttribIPointer(0, 2, GL_SHORT, sizeof(Pos2), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    color_buffer = std::make_unique<Buffer<Color>>();
-    color_buffer->bind();
-
-    glVertexAttribIPointer(1, 3, GL_UNSIGNED_BYTE, sizeof(Color), (void*)0);
-    glEnableVertexAttribArray(1);
-
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 Renderer::~Renderer()
 {
-    glDeleteVertexArrays(1, &vao);
     glfwTerminate();
 }
 
 void Renderer::push_triangle(Verts& pos, Colors& colors)
 {
-    if (count + 3 > BUFFER_SIZE) // Force draw if pending overflow
-        draw_scene();
-
+    glBegin(GL_TRIANGLES);
+    /* Triangle */
     for (int i = 0; i < 3; i++) {
-        vertex_buffer->set(count, pos[i]);
-        color_buffer->set(count, colors[i]);
-        count++;
+        Color& c = colors[i];
+        Pos2& p = pos[i];
+
+        glColor3ub(c.red, c.green, c.blue);
+        glVertex2i(p.x + offsetx, p.y + offsety);
     }
+    glEnd();
 }
 
 void Renderer::push_quad(Verts& pos, Colors& colors)
 {
-    if (count + 6 > BUFFER_SIZE)
-        draw_scene();
-
+    glBegin(GL_TRIANGLES);
+    /* Triangle 0 */
     for (int i = 0; i < 3; i++) {
-        vertex_buffer->set(count, pos[i]);
-        color_buffer->set(count, colors[i]);
-        count++;
-    }
+        Color& c = colors[i];
+        Pos2& p = pos[i];
 
-    for (int i = 1; i < 4; i++) {
-        vertex_buffer->set(count, pos[i]);
-        color_buffer->set(count, colors[i]);
-        count++;
+        glColor3ub(c.red, c.green, c.blue);
+        glVertex2i(p.x + offsetx, p.y + offsety);
     }
+    /* Triangle 1. */
+    for (int i = 1; i < 4; i++) {
+        Color& c = colors[i];
+        Pos2& p = pos[i];
+
+        glColor3ub(c.red, c.green, c.blue);
+        glVertex2i(p.x + offsetx, p.y + offsety);
+    }
+    glEnd();
 }
 
 void Renderer::push_image(TextureBuffer& buffer)
 {
-    textures.push_back(buffer);
-}
+    double x = buffer.top_left.first;
+    double y = buffer.top_left.second;
 
-void Renderer::draw_scene()
-{
-    glClear(GL_COLOR_BUFFER_BIT);
-    shader->bind();
-    
-    glMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
-    glBindVertexArray(vao);
-    glDrawArrays(GL_TRIANGLES, 0, count);
+    double width = buffer.width;
+    double height = buffer.height;
 
-    GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    printf("Image x: %.1f y: %.1f width: %.1f  height: %.1f\n", x, y, width, height);
 
-    while (true) {
-        auto status = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, 10000000);
-        if (status == GL_ALREADY_SIGNALED || 
-            status == GL_CONDITION_SATISFIED)
-            break;
-    }
-    
-    count = 0;
+    texture = buffer.texture();
 }
 
 void Renderer::set_draw_offset(int16_t x, int16_t y)
 {
-    this->draw_scene();
-    
-    auto loc = glGetUniformLocation(shader->raw(), "offset");
-    glUniform2i(loc, x, y);
+    offsetx = x;
+    offsety = y;
 }
 
 void Renderer::update()
 {
-	glfwPollEvents();
-	glfwSwapBuffers(window);
+    glfwPollEvents();
+    glfwSwapBuffers(window);
+
+    glClear(GL_COLOR_BUFFER_BIT);
 }
 
 bool Renderer::is_open()
@@ -122,4 +91,9 @@ bool Renderer::is_open()
 void Renderer::resize_func(GLFWwindow* window, int width, int height)
 {
 	glViewport(0, 0, width, height);
+}
+
+double map(double x, double in_min, double in_max, double out_min, double out_max)
+{
+    return ((x - in_min) / (in_max - in_min) * (out_max - out_min) + out_min);
 }

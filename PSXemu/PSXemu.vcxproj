@@ -105,6 +105,7 @@
     <ClCompile Include="video\opengl\shader.cpp" />
     <ClCompile Include="video\opengl\texture.cpp" />
     <ClCompile Include="video\renderer.cpp" />
+    <ClCompile Include="video\vram.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="cpu\cache.h" />
@@ -127,10 +128,13 @@
     <ClInclude Include="video\opengl\shader.h" />
     <ClInclude Include="video\opengl\texture.h" />
     <ClInclude Include="video\renderer.h" />
+    <ClInclude Include="video\vram.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="SCPH1001.BIN" />
     <None Include="shaders\fragment.frag" />
+    <None Include="shaders\text_fragment.frag" />
+    <None Include="shaders\text_vertex.vert" />
     <None Include="shaders\vertex.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

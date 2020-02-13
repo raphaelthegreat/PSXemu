@@ -1,5 +1,6 @@
 #pragma once
 #include "opengl/texture.h"
+#include "vram.h"
 #include "gpu_reg.h"
 #include <vector>
 #include <functional>
@@ -8,6 +9,16 @@
 
 #define BIND(x) std::bind(&GPU::x, this)
 #define VBLANK_START 263
+
+struct DataMover {
+	uint32_t start_x, start_y;
+	uint32_t x, y;
+
+	uint32_t width, height;
+
+	uint32_t pixel_count;
+	bool active;
+};
 
 enum GP0Command {
 	Nop = 0x0,
@@ -44,6 +55,13 @@ enum class TextureMethod {
 	Blended,
 };
 
+enum GPUMode {
+	Command = 0,
+	VRAMLoad = 1,
+	VRAMStore = 2,
+	VRAMCopy = 3
+};
+
 typedef std::function<void()> GP0Func;
 
 /* GPU class. */
@@ -65,6 +83,13 @@ public:
 
 	/* Check if the GPU is in vblank. */
 	bool is_vblank();
+
+	/* Copy data from ram to vram. */
+	void vram_load(uint16_t data);
+	/* Copy data from vram to ram. */
+	void vram_store(uint16_t data);
+	/* Copy data from vram to vram. */
+	void vram_copy(uint16_t data);
 
 	/* GPU write. */
 	void gp0_command(uint32_t data);
@@ -97,7 +122,7 @@ public:
 	void gp1_acknowledge_irq(uint32_t data);
 	void gp1_reset_cmd_buffer(uint32_t data);
 
-private:
+public:
 	GPUSTAT status;
 	
 	bool texture_x_flip, texture_y_flip;
@@ -122,6 +147,7 @@ private:
 	uint16_t display_horiz_end;
 	uint16_t display_line_start;
 	uint16_t display_line_end;
+	uint32_t x_offset, y_offset;
 
 	bool gp0_irq, vblank_irq;
 	uint16_t gpu_clock, scanline;
@@ -135,9 +161,15 @@ private:
 	uint32_t frame_count;
 	uint32_t dot_clock;
 
-	bool image_load, in_vblank;
+	bool in_vblank;
+	GPUMode gpu_mode;
 	Renderer* gl_renderer;
 
-	/* Intermediate texture storage. */
-	TextureBuffer buffer;
+	uint32_t image[256 * 4][256] = { 0 };
+
+	/* Hold info about current move operation. */
+	DataMover from_cpu, from_gpu;
+
+	/* GPU VRAM buffer. */
+	VRAM vram;
 };

@@ -9,6 +9,8 @@ using std::unique_ptr;
 typedef std::vector<Pos2> Verts;
 typedef std::vector<Color> Colors;
 
+double map(double x, double in_min, double in_max, double out_min, double out_max);
+
 class GLFWwindow;
 class Renderer {
 public:
@@ -30,10 +32,7 @@ public:
 public:
 	GLFWwindow* window;
 	int32_t width, height;
-	uint32_t vao, count;
+	uint32_t offsetx, offsety;
 
-	unique_ptr<Shader> shader;
-	unique_ptr<Buffer<Color>> color_buffer;
-	unique_ptr<Buffer<Pos2>> vertex_buffer;
-	std::vector<TextureBuffer> textures;
+	Texture texture;
 };                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                

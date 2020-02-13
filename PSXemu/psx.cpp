@@ -15,18 +15,30 @@ PSX::PSX(Renderer* renderer)
 void PSX::tick()
 {
 	/* Execute a frame's worth of cpu cycles. */
-	for (int i = 0; i < cycles_per_frame / 3; i++)
-		cpu->tick();
-
-	/* Update the timers. */
-	for (auto& timer : bus->timers) {
-		timer.tick(cycles_per_frame);
-	}
+	cpu->tick();
 
 	/* Tick the GPU. */
 	gpu->tick(cycles_per_frame);
 
 	/* Trigger Vblank interrupt. */
-	if (gpu->is_vblank())
+	/*if (gpu->is_vblank()) {
 		bus->irq_manager.irq_request(Interrupt::VBlank);
+		return;
+	}
+
+	if (gpu->scanline > VBLANK_START) {
+		Timer& t = bus->timers[1];
+		SyncMode sync = t.get_sync_mode();
+
+		if (t.mode.sync_enable) {
+			
+			if (sync == SyncMode::Reset || sync == SyncMode::ResetPause) {
+				t.current.raw = 0;
+			}
+			else if (sync == SyncMode::PauseFreeRun) {
+			    t.paused = false;
+				t.mode.sync_enable = false;
+			}
+		}
+	}*/
 }
