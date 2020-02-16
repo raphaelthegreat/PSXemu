@@ -6,7 +6,7 @@ PSXemu is a young emulator project for the Playstation 1. It aims to be an easy 
 
 ## Features
 - A full implementation of the MIPS R3000A CPU.
-- Partial GPU implementation without texturing.
+- Partial GPU implementation with basic texture support (being worked on texturing branch).
 - Working DMA routines.
 
 ## Goals
