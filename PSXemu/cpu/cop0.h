@@ -1,17 +1,6 @@
 #pragma once
 #include <cstdint>
 
-enum ExceptionType {
-	Irq = 0x0,
-	ReadError = 0x4,
-	WriteError = 0x5,
-	SysCall = 0x8,
-	Break = 0x9,
-	IllegalInstr = 0xa,
-	CopError = 0xb,
-	Overflow = 0xc
-};
-
 union Cop0STAT {
 	uint32_t raw;
 	struct {
@@ -59,7 +48,7 @@ union Cop0 {
 		uint32_t r0;
 		uint32_t r1;
 		uint32_t r2;
-		uint32_t BPC;		/* Breakpoint Program Counter */
+		uint32_t Bpc;		/* Breakpoint Program Counter */
 		uint32_t r4;
 		uint32_t BDA;		/* Breakpoint Data Address */
 		uint32_t TAR;		/* Target Address */
@@ -67,8 +56,8 @@ union Cop0 {
 		uint32_t BadA;		/* Bad Address */
 		uint32_t BDAM;		/* Breakpoint Data Address Mask */
 		uint32_t r10;
-		uint32_t BPCM;		/* Breakpoint Program Counter Mask */
-		Cop0STAT sr;	/* Status */
+		uint32_t BpcM;		/* Breakpoint Program Counter Mask */
+		Cop0STAT sr;	    /* Status */
 		Cop0CAUSE cause;	/* Cause */
 		uint32_t epc;		/* Exception Program Counter */
 		uint32_t PRId;		/* Processor Revision Identifier */

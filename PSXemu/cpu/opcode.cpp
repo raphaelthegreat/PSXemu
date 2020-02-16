@@ -5,14 +5,36 @@
 
 void CPU::op_special()
 {
-	auto& handler = special[instr.r_type.funct];
+	auto& handler = special[instr.function()];
 	handler();
+}
+
+void CPU::op_cop0()
+{
+	switch (instr.rs()) {
+	case 0b00000: 
+		op_mfc0(); 
+		break;
+	case 0b00100: 
+		op_mtc0(); 
+		break;
+	case 0b10000: 
+		op_rfe(); 
+		break;
+	default: 
+		exception(ExceptionType::IllegalInstr, instr.id()); 
+		break;
+	}
+}
+
+void CPU::op_cop2()
+{
 }
 
 void CPU::register_opcodes()
 {
 	lookup[0b000000] = BIND_CPU(op_special);
-	lookup[0b000001] = BIND_CPU(op_bxx);
+	lookup[0b000001] = BIND_CPU(op_bcond);
 	lookup[0b001111] = BIND_CPU(op_lui);
 	lookup[0b001101] = BIND_CPU(op_ori);
 	lookup[0b101011] = BIND_CPU(op_sw);
@@ -20,9 +42,7 @@ void CPU::register_opcodes()
 	lookup[0b001000] = BIND_CPU(op_addi);
 	lookup[0b000010] = BIND_CPU(op_j);
 	lookup[0b010000] = BIND_CPU(op_cop0);
-	lookup[0b010001] = BIND_CPU(op_cop1);
 	lookup[0b010010] = BIND_CPU(op_cop2);
-	lookup[0b010011] = BIND_CPU(op_cop3);
 	lookup[0b100011] = BIND_CPU(op_lw);
 	lookup[0b000101] = BIND_CPU(op_bne);
 	lookup[0b101001] = BIND_CPU(op_sh);
@@ -39,19 +59,11 @@ void CPU::register_opcodes()
 	lookup[0b100101] = BIND_CPU(op_lhu);
 	lookup[0b100001] = BIND_CPU(op_lh);
 	lookup[0b001110] = BIND_CPU(op_xori);
-	lookup[0b110000] = BIND_CPU(op_lwc0);
-	lookup[0b110001] = BIND_CPU(op_lwc1);
-	lookup[0b110010] = BIND_CPU(op_lwc2);
-	lookup[0b110011] = BIND_CPU(op_lwc3);
-	lookup[0b111000] = BIND_CPU(op_swc0);
-	lookup[0b111001] = BIND_CPU(op_swc1);
-	lookup[0b111010] = BIND_CPU(op_swc2);
-	lookup[0b111011] = BIND_CPU(op_swc3);
 	lookup[0b101110] = BIND_CPU(op_swr);
 	lookup[0b101010] = BIND_CPU(op_swl);
 	lookup[0b100010] = BIND_CPU(op_lwl);
 	lookup[0b100110] = BIND_CPU(op_lwr);
-	
+
 	special[0b000000] = BIND_CPU(op_sll);
 	special[0b100101] = BIND_CPU(op_or);
 	special[0b101011] = BIND_CPU(op_sltu);
@@ -63,7 +75,7 @@ void CPU::register_opcodes()
 	special[0b100011] = BIND_CPU(op_subu);
 	special[0b000011] = BIND_CPU(op_sra);
 	special[0b011010] = BIND_CPU(op_div);
-	special[0b010010] = BIND_CPU(op_mlfo);
+	special[0b010010] = BIND_CPU(op_mflo);
 	special[0b000010] = BIND_CPU(op_srl);
 	special[0b011011] = BIND_CPU(op_divu);
 	special[0b010000] = BIND_CPU(op_mfhi);

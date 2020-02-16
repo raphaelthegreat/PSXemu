@@ -1,43 +1,28 @@
 #pragma once
 #include <cstdint>
 
-union IType {
-	uint32_t raw;
+struct Instr {
+    uint32_t value;                     //debug
+    uint32_t opcode() { return value >> 26; }     //Instr opcode
 
-	struct {
-		uint32_t data : 16;
-		uint32_t rt : 5;
-		uint32_t rs : 5;
-		uint32_t opcode : 6;
-	};
-};
+    //I-Type
+    uint32_t rs() { return (value >> 21) & 0x1F; }//Register Source
+    uint32_t rt() { return(value >> 16) & 0x1F; }//Register Target
+    uint32_t imm() { return value & 0xFFFF; } //Immediate value
+    uint32_t imm_s() { return(uint32_t)(int16_t)imm(); } //Immediate value sign extended
 
-union RType {
-	uint32_t raw;
+    //R-Type
+    uint32_t rd() { return(value >> 11) & 0x1F; }
+    uint32_t sa() { return(value >> 6) & 0x1F; } //Shift Amount
+    uint32_t function() { return value & 0x3F; }  //Function
 
-	struct {
-		uint32_t funct : 6;
-		uint32_t shamt : 5;
-		uint32_t rd : 5;
-		uint32_t rt : 5;
-		uint32_t rs : 5;
-		uint32_t opcode : 6;
-	};
-};
+    //J-Type                                       
+    uint32_t addr() { return value & 0x3FFFFFF; } //Target Address
 
-union JType {
-	uint32_t raw;
+    //id / Cop
+    uint32_t id() { return opcode() & 0x3; } //This is used mainly for coprocesor opcode id but its also used on opcodes that trigger exception
 
-	struct {
-		uint32_t target : 26;
-		uint32_t opcode : 6;
-	};
-};
-
-union Instruction {
-	uint32_t raw;
-
-	IType i_type;
-	JType j_type;
-	RType r_type;
+    void Decode(uint32_t instr) {
+        value = instr;
+    }
 };

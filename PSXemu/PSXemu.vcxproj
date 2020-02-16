@@ -67,7 +67,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;glu32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -85,37 +85,31 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;glu32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="devices\irq.cpp" />
-    <ClCompile Include="cpu\opcodes.cpp" />
-    <ClCompile Include="cpu\util.cpp" />
     <ClCompile Include="cpu\cpu.cpp" />
-    <ClCompile Include="devices\timer.cpp" />
+    <ClCompile Include="cpu\opcode.cpp" />
+    <ClCompile Include="cpu\util.cpp" />
+    <ClCompile Include="glad.c" />
     <ClCompile Include="memory\bios.cpp" />
     <ClCompile Include="memory\dma.cpp" />
     <ClCompile Include="memory\bus.cpp" />
-    <ClCompile Include="glad.c" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="psx.cpp" />
-    <ClCompile Include="video\opengl\buffer.cpp" />
     <ClCompile Include="video\gpu.cpp" />
     <ClCompile Include="video\opengl\shader.cpp" />
-    <ClCompile Include="video\opengl\texture.cpp" />
     <ClCompile Include="video\renderer.cpp" />
     <ClCompile Include="video\vram.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="cpu\cache.h" />
     <ClInclude Include="cpu\cop0.h" />
     <ClInclude Include="cpu\instr.h" />
     <ClInclude Include="devices\irq.h" />
     <ClInclude Include="cpu\util.h" />
     <ClInclude Include="cpu\cpu.h" />
     <ClInclude Include="devices\header.h" />
-    <ClInclude Include="devices\timer.h" />
     <ClInclude Include="memory\bios.h" />
     <ClInclude Include="memory\dma.h" />
     <ClInclude Include="memory\bus.h" />

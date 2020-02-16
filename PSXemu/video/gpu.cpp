@@ -5,12 +5,6 @@
 #include <Windows.h>
 #include <gl/GLU.h>
 
-#pragma comment(lib, "glu32.lib")
-
-#define CMD_X(n)   (command_fifo[n] & 0x0000FFFF)
-#define CMD_Y(n)   (command_fifo[n] >> 16)
-#define COLOR16_REV(n)  glColor3f(((n) & 0x1F)/31.0, (((n) & 0x3E0) >> 5)/31.0,(((n) & 0x7C00) >> 10)/31.0);
-
 /* GPU class implementation */
 GPU::GPU(Renderer* renderer)
 {
@@ -41,10 +35,13 @@ GPU::GPU(Renderer* renderer)
 
 	dot_clock = 0;
 	frame_count = 0;
-
+	
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
-	gluOrtho2D(0.0, 1024.0, 768.0, 0.0);
+	
+	gluOrtho2D(0.0, 1280, 960, 0.0);
 }
 
 uint32_t GPU::get_status()
@@ -151,27 +148,25 @@ bool GPU::is_vblank()
 
 void GPU::vram_load(uint16_t data)
 {
-	if (from_cpu.active == true) {
+	if (data_mover.active == true) {
 		/* Write first halfword to vram. */
-		uint32_t vramx = from_cpu.start_x + from_cpu.x;
-		uint32_t vramy = from_cpu.start_y + from_cpu.y;
+		uint32_t vramx = data_mover.start_x + data_mover.x;
+		uint32_t vramy = data_mover.start_y + data_mover.y;
 
 		/* Write to vram. */
 		vram.write(vramx, vramy, data);
 
-		printf("Pixel write x: %d y: %d data: %d\n", vramx, vramy, data);
-
 		/* Increment 2D coords. */
-		from_cpu.x++;
-		if (from_cpu.x == from_cpu.width) {
+		data_mover.x++;
+		if (data_mover.x == data_mover.width) {
 			/* Move to next vram line. */
-			from_cpu.x = 0;
-			from_cpu.y++;
+			data_mover.x = 0;
+			data_mover.y++;
 
 			/* Transfer complete. */
-			if (from_cpu.y == from_cpu.height) {
-				from_cpu.y = 0;
-				from_cpu.active = false;
+			if (data_mover.y == data_mover.height) {
+				data_mover.y = 0;
+				data_mover.active = false;
 				gpu_mode = Command;
 			}
 		}
@@ -186,6 +181,19 @@ void GPU::vram_copy(uint16_t data)
 {
 }
 
+Color8 GPU::unpack(uint16_t color)
+{
+	uint8_t red, green, blue, alpha;
+
+	/* Unpack bits. */
+	red = ((color & 0x1F) / 31.0) * 255.999;
+	green = (((color & 0x3E0) >> 5) / 31.0) * 255.999;
+	blue = (((color & 0x7C00) >> 10) / 31.0) * 255.999;
+	alpha = (color >> 15) * 255;
+
+	return Color8(red, green, blue, alpha);
+}
+
 void GPU::gp0_command(uint32_t data)
 {
 	/* Handle a new GPU command. */
@@ -194,7 +202,7 @@ void GPU::gp0_command(uint32_t data)
 
 		/* Number of operands and callback function of command. */
 		std::pair<uint32_t, GP0Func> handler;
-		if (command == GP0Command::Image_Load) __debugbreak();
+		
 		/* Select the appropriate handler. */
 		switch (command) {
 		case Nop:
@@ -268,13 +276,8 @@ void GPU::gp0_command(uint32_t data)
 		uint16_t pixel1 = bit_range(data, 0, 16);
 		uint16_t pixel2 = bit_range(data, 16, 32);
 
-		uint32_t vramx = from_cpu.start_x + from_cpu.x;
-		uint32_t vramy = from_cpu.start_y + from_cpu.y;
-
-		if (vramx == 64 && vramy == 0) {
-			printf("%d\n", data);
-			__debugbreak();
-		}
+		uint32_t vramx = data_mover.start_x + data_mover.x;
+		uint32_t vramy = data_mover.start_y + data_mover.y;
 
 		/* Select vram operation to do. */
 		if (gpu_mode == VRAMLoad) {
@@ -322,7 +325,7 @@ void GPU::gp1_command(uint32_t data)
 	}
 }
 
-/* Execute a NOP command. */
+/* execute a NOP command. */
 void GPU::gp0_nop()
 {
 	printf("GPU Nop\n");
@@ -333,13 +336,13 @@ void GPU::gp0_mono_quad()
 {
 	printf("Draw Mono Quad\n");
 
-	Color color = Color::from_gpu(command_fifo[0]);
+	Color8 color = Color8::from_gpu(command_fifo[0]);
 	Verts pos =
 	{
-		Pos2::from_gpu(command_fifo[1]),
-		Pos2::from_gpu(command_fifo[2]),
-		Pos2::from_gpu(command_fifo[3]),
-		Pos2::from_gpu(command_fifo[4]),
+		Pos2i::from_gpu(command_fifo[1]),
+		Pos2i::from_gpu(command_fifo[2]),
+		Pos2i::from_gpu(command_fifo[3]),
+		Pos2i::from_gpu(command_fifo[4]),
 	};
 
 	Colors colors = { color, color, color, color };
@@ -428,12 +431,6 @@ void GPU::gp0_image_load()
 	uint32_t width = bit_range(res, 0, 16);
 	uint32_t height = bit_range(res, 16, 32);
 
-	printf("GPU load image w:%d  h:%d\n", width, height);
-
-	for (int i = 0; i < command_fifo.size(); i++) {
-		printf("Attrib %d: 0x%x\n", i, command_fifo[i]);
-	}
-
 	/* Compute image surface. */
 	uint32_t imgsize = width * height;
 	/* Round to next even number. */
@@ -451,20 +448,18 @@ void GPU::gp0_image_load()
 
 	/* Is the image not 0 */
 	if (remaining_attribs > 0) {
-		printf("%d %d\n", coordx, coordy);
-
 		/* Image x/y in vram and width/height. */
-		from_cpu.start_x = coordx;
-		from_cpu.start_y = coordy;
-		from_cpu.width = width;
-		from_cpu.height = height;
-		from_cpu.pixel_count = remaining_attribs;
+		data_mover.start_x = coordx;
+		data_mover.start_y = coordy;
+		data_mover.width = width;
+		data_mover.height = height;
+		data_mover.pixel_count = remaining_attribs;
 		
-		from_cpu.x = 0;
-		from_cpu.y = 0;
+		data_mover.x = 0;
+		data_mover.y = 0;
 
 		/* Activate data mover. */
-		from_cpu.active = true;
+		data_mover.active = true;
 	}
 	else {
 		printf("GPU image size 0!\n");
@@ -479,7 +474,7 @@ void GPU::gp0_image_store()
 	uint32_t res = command_fifo[2];
 	uint32_t width = bit_range(res, 0, 16);
 	uint32_t height = bit_range(res, 16, 32);
-	//__debugbreak();
+	
 	printf("Unhandled image store: %d %d\n", width, height);
 }
 
@@ -489,85 +484,152 @@ void GPU::gp0_shaded_quad()
 	
 	Verts pos =
 	{
-		Pos2::from_gpu(command_fifo[1]),
-		Pos2::from_gpu(command_fifo[3]),
-		Pos2::from_gpu(command_fifo[5]),
-		Pos2::from_gpu(command_fifo[7]),
+		Pos2i::from_gpu(command_fifo[1]),
+		Pos2i::from_gpu(command_fifo[3]),
+		Pos2i::from_gpu(command_fifo[5]),
+		Pos2i::from_gpu(command_fifo[7]),
 	};
 
 	Colors colors =
 	{
-		Color::from_gpu(command_fifo[0]),
-		Color::from_gpu(command_fifo[2]),
-		Color::from_gpu(command_fifo[4]),
-		Color::from_gpu(command_fifo[6]),
+		Color8::from_gpu(command_fifo[0]),
+		Color8::from_gpu(command_fifo[2]),
+		Color8::from_gpu(command_fifo[4]),
+		Color8::from_gpu(command_fifo[6]),
 	};
 
 	gl_renderer->push_quad(pos, colors);
 }
 
+/* 1st  Color+Command     (CcBbGgRrh) (color is ignored for raw-textures)
+   2nd  Vertex1           (YyyyXxxxh)
+   3rd  Texcoord1+Palette (ClutYyXxh)
+   4th  Vertex2           (YyyyXxxxh)
+   5th  Texcoord2+Texpage (PageYyXxh)
+   6th  Vertex3           (YyyyXxxxh)
+   7th  Texcoord3         (0000YyXxh)
+  (8th) Vertex4           (YyyyXxxxh) (if any)
+  (9th) Texcoord4         (0000YyXxh) (if any)*/
 void GPU::gp0_shaded_quad_blend()
 {
 	printf("Draw Shaded Quad with Blending!\n");
 
-	uint32_t color = command_fifo[0];
-
-	uint32_t r = color & 0xff;
-	uint32_t g = (color >> 8) & 0xff;
-	uint32_t b = (color >> 16) & 0xff;
+	uint32_t start_x, start_y, width, height;
 	
-	Pos2 verts[4];
-	
+	/* Build vertex data array. */
+	std::vector<Pos2i> verts(4);
 	for (int i = 0; i < 4; i++) {
-		verts[i] = Pos2::from_gpu(command_fifo[i * 2 + 1]);
+		uint32_t vertex = command_fifo[2 * i + 1];
+		verts[i] = Pos2i::from_gpu(vertex);
 	}
+
+	/* Build texture coords array. */
+	std::vector<Pos2f> coords =
+	{
+		Pos2f(0.0f, 0.0f),
+		Pos2f(1.0f, 0.0f),
+		Pos2f(0.0f, 1.0f),
+		Pos2f(1.0f, 1.0f)
+	};
+
+	/* Define bottom left corner of the quad. */
+	start_x = verts[0].x;
+	start_y = verts[0].y;
+
+	/* Quad width and height. */
+	width = verts[1].x - start_x;
+	height = verts[3].y - start_y;
 
 	ClutAttrib clut;
 	TPageAttrib page;
 
+	/* Get CLUT and Texture Page attributes. */
 	clut.raw = command_fifo[2] >> 16;
 	page.raw = command_fifo[4] >> 16;
 	
-	uint32_t x = CMD_X(1);
-	uint32_t y = CMD_Y(1);
-
-	uint32_t w = (CMD_X(3) - x);
-	uint32_t h = (CMD_Y(7) - y);
+	/* Texpage Attribute (Parameter for Textured-Polygons commands)
+	0-8    Same as GP0(E1h).Bit0-8 (see there)
+	9-10   Unused (does NOT change GP0(E1h).Bit9-10)
+	11     Same as GP0(E1h).Bit11  (see there)
+	12-13  Unused (does NOT change GP0(E1h).Bit12-13)
+	14-15  Unused (should be 0)*/
 	uint32_t tx = page.page_x * 64;
 	uint32_t ty = page.page_y * 256;
 	
-	printf("X: %d Y: %d Width: %d Height: %d\n", x, y, w, h);
-	
+	/* Clut Attribute (Color Lookup Table, aka Palette)
+	(This attribute is relevant only for 4bit/8bit textures).
+	0-5      X coordinate X/16  (ie. in 16-halfword steps)
+	6-14     Y coordinate 0-511 (ie. in 1-line steps)
+	15       Unknown/unused (should be 0)*/
 	uint32_t cx = clut.x * 16;
 	uint32_t cy = clut.y;
-	printf("CLUT: %d\n", clut.x);
-	uint32_t table[16];
-	printf("Tex mode: %d\n", status.texture_depth);
+
+	/* Read CLUT table from VRAM. */
 	for (int i = 0; i < 16; i++) {
-		table[i] = vram.read(cx + i, cy);
-		printf("%d %d data: %d\n", cx + i, cy, table[i]);
+		uint32_t entry = vram.read(cx + i, cy);
+		clut_table.push_back(entry);
 	}
 	
-	__debugbreak();
-	for (int i = 0; i < w / 4; i++) {
-		for (int j = 0; j < h; j++)
-		{
-			image[i * 4 + 0][j] = table[vram.buffer[tx + i][ty + j].ll];
-			image[i * 4 + 1][j] = table[vram.buffer[tx + i][ty + j].ml];
-			image[i * 4 + 2][j] = table[vram.buffer[tx + i][ty + j].mr];
-			image[i * 4 + 3][j] = table[vram.buffer[tx + i][ty + j].rr];
+	/* Loop through the pixels in the texture page. */
+	for (int y = 0; y < height; y++) {
+		for (int x = 0; x < width / 4; x++) {
+			image[x * 4 + 0][y] = clut_table[vram.buffer[tx + x][ty + y].ll];
+			image[x * 4 + 1][y] = clut_table[vram.buffer[tx + x][ty + y].ml];
+			image[x * 4 + 2][y] = clut_table[vram.buffer[tx + x][ty + y].mr];
+			image[x * 4 + 3][y] = clut_table[vram.buffer[tx + x][ty + y].rr];
+			
+			/* For each pixel in a batch of 4 pixels seperate rgb colors. */
+			for (int k = 0; k < 4; k++) {
+				uint32_t mask = 15 << 4 * k;
+				uint32_t pixel = vram.buffer[tx + x][ty + y].raw;
+				
+				uint32_t index = (pixel & mask) >> 4 * k;
+				uint32_t data = clut_table[index];
+				
+				Color8 color = unpack(data);
+				color.alpha = 255;
+				
+				/* In opaque draw commands */
+				/* color value 0x0000 means tranparent. */
+				/* and 0x8000 means black */
+				if (data == 0) {
+					color.red = 0;
+					color.green = 0;
+					color.blue = 0;
+					color.alpha = 0;
+				}
+				else if (data == 0x8000) {
+					color.red = 0;
+					color.green = 0;
+					color.blue = 0;
+				}
+
+				/* Push data to pixel buffer. */
+				pixels.push_back(color.red);
+				pixels.push_back(color.green);
+				pixels.push_back(color.blue);
+				pixels.push_back(color.alpha);
+			}
 		}
 	}
+	
+	/* Create TextureInfo object. */
+	TextureInfo info;
+	info.width = width;
+	info.height = height;
+	info.vram_x = start_x;
+	info.vram_y = start_y;
+	info.format = Format::RGBA;
 
-	glBegin(GL_POINTS);
-	for (int i = 0; i < w; i++)
-		for (int j = 0; j < h; j++)
-		{
-			//if (image[i][j] == 0) continue;
-			COLOR16_REV(image[i][j]);
-			glVertex2i(x + i ,y + j);
-		}
-	glEnd();
+	/* Update texture with generated pixels. */
+	gl_renderer->update_texture(info, pixels);
+
+	/* Clear tables after use. */
+	clut_table.clear();
+	pixels.clear();
+
+	/* Push the quad to the renderer to be drawn. */
+	gl_renderer->push_textured_quad(verts, coords, info);
 }
 
 void GPU::gp0_shaded_trig()
@@ -576,16 +638,16 @@ void GPU::gp0_shaded_trig()
 
 	Verts pos =
 	{
-		Pos2::from_gpu(command_fifo[1]),
-		Pos2::from_gpu(command_fifo[3]),
-		Pos2::from_gpu(command_fifo[5])
+		Pos2i::from_gpu(command_fifo[1]),
+		Pos2i::from_gpu(command_fifo[3]),
+		Pos2i::from_gpu(command_fifo[5])
 	};
 
 	Colors colors =
 	{
-		Color::from_gpu(command_fifo[0]),
-		Color::from_gpu(command_fifo[2]),
-		Color::from_gpu(command_fifo[4])
+		Color8::from_gpu(command_fifo[0]),
+		Color8::from_gpu(command_fifo[2]),
+		Color8::from_gpu(command_fifo[4])
 	};
 
 	gl_renderer->push_triangle(pos, colors);

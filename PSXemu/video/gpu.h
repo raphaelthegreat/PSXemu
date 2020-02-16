@@ -5,6 +5,7 @@
 #include <vector>
 #include <functional>
 #include <utility>
+#include "opengl/buffer.h"
 #include <cstdint>
 
 #define BIND(x) std::bind(&GPU::x, this)
@@ -91,6 +92,9 @@ public:
 	/* Copy data from vram to vram. */
 	void vram_copy(uint16_t data);
 
+	/* Unpack color channels from GPU data. */
+	Color8 unpack(uint16_t color);
+
 	/* GPU write. */
 	void gp0_command(uint32_t data);
 	void gp1_command(uint32_t data);
@@ -165,10 +169,14 @@ public:
 	GPUMode gpu_mode;
 	Renderer* gl_renderer;
 
-	uint32_t image[256 * 4][256] = { 0 };
+	uint32_t image[256 * 4][256];
+	/* Intermmediate pixel data. */
+	std::vector<uint8_t> pixels;
+	/* The CLUT table can vary in size based on texture depth. */
+	std::vector<uint32_t> clut_table;
 
 	/* Hold info about current move operation. */
-	DataMover from_cpu, from_gpu;
+	DataMover data_mover;
 
 	/* GPU VRAM buffer. */
 	VRAM vram;

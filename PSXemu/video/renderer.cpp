@@ -1,6 +1,25 @@
 ﻿#include "renderer.h"
 #include <GLFW/glfw3.h>
 
+void CHECK_FRAMEBUFFER_STATUS()
+{
+    GLenum status;
+    status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+    switch (status) {
+    case GL_FRAMEBUFFER_COMPLETE:
+        break;
+
+    case GL_FRAMEBUFFER_UNSUPPORTED:
+        /* choose different formats */
+        break;
+
+    default:
+        /* programming error; will fail on all hardware */
+        fputs("Framebuffer Error\n", stderr);
+        exit(-1);
+    }
+}
+
 Renderer::Renderer(int _width, int _height, std::string title)
 {
 	glfwInit();
@@ -23,10 +42,10 @@ Renderer::~Renderer()
 void Renderer::push_triangle(Verts& pos, Colors& colors)
 {
     glBegin(GL_TRIANGLES);
-    /* Triangle */
+    /* Triangle 0. */
     for (int i = 0; i < 3; i++) {
-        Color& c = colors[i];
-        Pos2& p = pos[i];
+        Color8& c = colors[i];
+        Pos2i& p = pos[i];
 
         glColor3ub(c.red, c.green, c.blue);
         glVertex2i(p.x + offsetx, p.y + offsety);
@@ -39,16 +58,16 @@ void Renderer::push_quad(Verts& pos, Colors& colors)
     glBegin(GL_TRIANGLES);
     /* Triangle 0 */
     for (int i = 0; i < 3; i++) {
-        Color& c = colors[i];
-        Pos2& p = pos[i];
+        Color8& c = colors[i];
+        Pos2i& p = pos[i];
 
         glColor3ub(c.red, c.green, c.blue);
         glVertex2i(p.x + offsetx, p.y + offsety);
     }
     /* Triangle 1. */
     for (int i = 1; i < 4; i++) {
-        Color& c = colors[i];
-        Pos2& p = pos[i];
+        Color8& c = colors[i];
+        Pos2i& p = pos[i];
 
         glColor3ub(c.red, c.green, c.blue);
         glVertex2i(p.x + offsetx, p.y + offsety);
@@ -56,17 +75,63 @@ void Renderer::push_quad(Verts& pos, Colors& colors)
     glEnd();
 }
 
-void Renderer::push_image(TextureBuffer& buffer)
+void Renderer::push_textured_quad(Verts& pos, Coords& coords, TextureInfo& info)
 {
-    double x = buffer.top_left.first;
-    double y = buffer.top_left.second;
+    Texture8* texture = textures[info];
 
-    double width = buffer.width;
-    double height = buffer.height;
+    if (texture != NULL)
+        texture->bind();
 
-    printf("Image x: %.1f y: %.1f width: %.1f  height: %.1f\n", x, y, width, height);
+    glEnable(GL_TEXTURE_2D);
+    glBegin(GL_TRIANGLES);
 
-    texture = buffer.texture();
+    /* Triangle 0. */
+    for (int i = 0; i < 3; i++) {
+        glTexCoord2f(coords[i].x, coords[i].y);
+        glVertex2i(pos[i].x, pos[i].y);
+    }
+
+    /* Triangle 1. */
+    for (int i = 1; i < 4; i++) {
+        glTexCoord2f(coords[i].x, coords[i].y);
+        glVertex2i(pos[i].x, pos[i].y);
+    }
+
+    glEnd();
+    
+    if (texture != NULL)
+        texture->unbind();
+
+    glDisable(GL_TEXTURE_2D);
+}
+
+void Renderer::update_texture(TextureInfo& info, Pixels& pixels)
+{
+    glEnable(GL_TEXTURE_2D);
+    
+    /* Update texture if it exists else create it. */
+    Texture8* texture = textures[info];
+    if (texture != NULL) {
+        texture->bind();
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 
+                                        info.width, 
+                                        info.height, 
+                                        (int)info.format, 
+                                        GL_UNSIGNED_BYTE, 
+                                        &pixels.front());
+
+        texture->unbind();
+    }
+    else {
+        textures[info] = new Texture8(info.width, info.height, &pixels.front(), Format::RGBA, Filtering::Nearest);
+    }
+
+    glDisable(GL_TEXTURE_2D);
+}
+
+bool Renderer::is_texture_null(TextureInfo& info)
+{
+    return (textures[info] == NULL);
 }
 
 void Renderer::set_draw_offset(int16_t x, int16_t y)
