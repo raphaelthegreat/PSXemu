@@ -4,7 +4,7 @@
 
 union Address {
 	uint32_t raw;
-	
+
 	struct {
 		uint32_t word_alignment : 2;
 		uint32_t index : 2;
@@ -26,12 +26,12 @@ union CacheTag {
 
 struct CacheLine {
 	CacheTag tag;
-	Instruction instrs[4];
+	Instr instrs[4];
 };
 
 union CacheControl {
 	uint32_t raw;
-	
+
 	struct {
 		uint32_t lock : 1;	/* Lock Mode */
 		uint32_t inv : 1;		/* Invalidate Mode */

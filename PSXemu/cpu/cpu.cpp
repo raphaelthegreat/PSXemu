@@ -1,986 +1,749 @@
 #include "cpu.h"
-#include <cpu/util.h>
-#include <video/renderer.h>
 
-CPU::CPU(Renderer* _renderer, Bus* _bus) : 
-	load(std::make_pair(0, 0))
+CPU::CPU(Bus* bus)
 {
-	renderer = _renderer;
-	bus = _bus;
-
-	memset(regs, 0, 32);
-	memset(out_regs, 0, 32);
-	memset(cop0.regs, 0, 64 * 4);
-	
-	/* Register opcodes. */
-	register_opcodes();
-
-	/* Reset CPU. */
-	reset();
-}
-
-void CPU::reset()
-{
-	/* Reset CPU state. */
-	pc = 0xbfc00000;
-	next_pc = pc + 4;
-	current_pc = 0;
-	hi = 0; lo = 0;
-	regs[0] = 0;
-
-	load = std::make_pair(0, 0);
-	should_branch = false; delay_slot = false;
+    this->bus = bus;
+    
+    /*Set PRID Processor ID*/
+    cop0.PRId = 0x2;
+    
+    /* Fill opcode table. */
+    register_opcodes();
+    
+    /* Reset CPU state. */
+    reset();
 }
 
 void CPU::tick()
 {
-	current_pc = pc;
-	
-	/* Check for alignment errors. */
-	if (current_pc % 4 != 0) {
-		exception(ReadError);
-		return;
-	}
-	
-	/* Fetch instruction either from memory or from cahe. */
-	fetch();
+    /* Fetch next instruction. */
+    fetch();
+    
+    /* Execute it. */
+    auto& handler = lookup[instr.opcode()];
+    handler();
 
-	pc = next_pc;
-	next_pc = pc + 4;
+    /* Apply pending load delays. */
+    handle_load_delay();
+}
 
-	/* Apply any pending load delay slot. */
-	auto [reg, val] = load;
-	set_reg(reg, val);
-	load = std::make_pair(0, 0);
+void CPU::reset()
+{
+    /* Reset registers and PC. */
+    pc = 0xbfc00000;
+    next_pc = pc + 4;
+    current_pc = 0;
+    hi = 0; lo = 0;
 
-	delay_slot = should_branch;
-	should_branch = false;
+    /* Clear general purpose registers. */
+    memset(registers, 0, 32 * sizeof(uint32_t));
 
-	/* If any interrupt is pending execute it. */
-	if (bus->irq_manager.irq_pending()) {
-		/* IMPORTANT! TODO: Ignore interrupt when */
-		/* the next instruction is a GTE instuction. */
-		exception(Irq);
-	} 	/* Else execute fetched instruction. */
-	else {
-		auto& handler = lookup[instr.r_type.opcode];
-		handler();
-	}
-	
-	/* Copy modified registers. */
-	std::copy(out_regs, out_regs + 32, regs);
+    /* Clear CPU state. */
+    is_branch = false;
+    is_delay_slot = false;
+    took_branch = false;
+    in_delay_slot_took_branch = false;
+}
+
+void CPU::handle_interrupts()
+{
+    uint32_t load = read(pc);
+    uint32_t instr = load >> 26;
+    
+    /* If it is a GTE instruction do not execute interrupt! */
+    if (instr == 0x12) {       
+        return;
+    }
+
+    /* Update external irq bit in CAUSE register. */
+    /* This bit is set when an interrupt is pending. */
+    bool pending = bus->interruptController.interruptPending();
+    set_bit(cop0.cause.IP, 0, pending);
+
+    /* Get interrupt state from Cop0. */
+    bool irq_enabled = cop0.sr.IEc;
+
+    uint32_t irq_mask = cop0.sr.Sw | (cop0.sr.Intr >> 2);
+    uint32_t irq_pending = cop0.cause.Sw | (cop0.cause.IP >> 2);
+
+    /* If pending and enabled, handle the interrupt. */
+    if (irq_enabled && (irq_mask & irq_pending) > 0) {
+        exception(ExceptionType::Interrupt);
+    }
 }
 
 void CPU::fetch()
 {
-	/* Get cache control register. */
-	CacheControl& cc = bus->cache_ctrl;
+    CacheControl& cc = bus->cache_ctrl;
 
-	/* Get PC address. */
-	Address addr;
-	addr.raw = pc;
+    /* Get PC address. */
+    Address addr;
+    addr.raw = pc;
 
-	bool kseg1 = KSEG1.contains(pc).has_value();
-	if (!kseg1 && cc.is1) {
+    bool kseg1 = KSEG1.contains(pc).has_value();
+    if (!kseg1 && cc.is1) {
 
-		/* Fetch cache line and check it's validity. */
-		CacheLine& line = instr_cache[addr.cache_line];		
-		bool not_valid = line.tag.tag != addr.tag;
-		not_valid |= line.tag.index > addr.index;
+        /* Fetch cache line and check it's validity. */
+        CacheLine& line = instr_cache[addr.cache_line];
+        bool not_valid = line.tag.tag != addr.tag;
+        not_valid |= line.tag.index > addr.index;
 
-		/* Handle cache miss. */
-		if (not_valid) {
-			uint32_t cpc = pc;
-			
-			/* Move adjacent data to the cache. */
-			for (int i = addr.index; i < 4; i++) {
-				line.instrs[i].raw = read(cpc);
-				cpc += 4;
-			}
-		}
+        /* Handle cache miss. */
+        if (not_valid) {
+            uint32_t cpc = pc;
 
-		/* Validate the cache line. */
-		line.tag.raw = pc & 0xfffff00c;
+            /* Move adjacent data to the cache. */
+            for (int i = addr.index; i < 4; i++) {
+                line.instrs[i].value = read(cpc);
+                cpc += 4;
+            }
+        }
 
-		/* Get instruction from cache. */
-		instr = line.instrs[addr.index];
-	}
-	else {
-		/* Fetch instruction from main RAM. */
-		instr.raw = read(pc);
-	}
+        /* Validate the cache line. */
+        line.tag.raw = pc & 0xfffff00c;
+
+        /* Get instruction from cache. */
+        instr = line.instrs[addr.index];
+    }
+    else {
+        /* Fetch instruction from main RAM. */
+        instr.value = read(pc);
+    }
+
+    /* Update PC. */
+    current_pc = pc;
+    pc = next_pc;
+    next_pc += 4;
+
+    /* Update (load) delay slots. */
+    is_delay_slot = is_branch;
+    in_delay_slot_took_branch = took_branch;
+    is_branch = false;
+    took_branch = false;
+
+    /* Check aligment errors. */
+    if (current_pc % 4 != 0) {
+        cop0.BadA = current_pc;
+        
+        exception(ExceptionType::ReadError);
+        return;
+    }
 }
 
-uint32_t CPU::get_reg(uint32_t reg)
+void CPU::exception(ExceptionType cause, uint32_t cop)
 {
-	return regs[reg];
+    uint32_t mode = cop0.sr.raw & 0x3F;
+    cop0.sr.raw &= ~(uint32_t)0x3F;
+    cop0.sr.raw |= (mode << 2) & 0x3F;
+
+    uint32_t copy = cop0.cause.raw & 0xff00;
+    cop0.cause.exc_code = (uint32_t)cause;
+    cop0.cause.CE = cop;
+
+    if (cause == ExceptionType::Interrupt) {
+        cop0.epc = pc;
+        
+        /* Hack: related to the delay of the ex interrupt*/
+        is_delay_slot = is_branch;
+        in_delay_slot_took_branch = took_branch;
+    }
+    else {
+        cop0.epc = current_pc;
+    }
+
+    if (is_delay_slot) {
+        cop0.epc -= 4;
+        
+        cop0.cause.BD = true;
+        cop0.TAR = pc;
+
+        if (in_delay_slot_took_branch) {
+            cop0.cause.BT = true;
+        }
+    }
+
+    /* Select exception address. */
+    pc = exception_addr[cop0.sr.BEV];
+    next_pc = pc + 4;
 }
 
-void CPU::set_reg(uint32_t reg, uint32_t val)
+void CPU::handle_load_delay()
 {
-	out_regs[reg] = val;
-	out_regs[0] = 0;
+    if (delayed_memory_load.reg != memory_load.reg) { //if loadDelay on same reg it is lost/overwritten (amidog tests)
+        registers[memory_load.reg] = memory_load.value;
+    }
+    memory_load = delayed_memory_load;
+    delayed_memory_load.reg = 0;
+
+    registers[write_back.reg] = write_back.value;
+    write_back.reg = 0;
+    registers[0] = 0;
 }
 
-void CPU::branch(uint32_t offset)
+void CPU::op_bcond()
 {
-	offset = offset << 2;
-	next_pc = pc + offset;
-	should_branch = true;
-}
+    is_branch = true;
+    uint32_t op = instr.rt();
 
-void CPU::exception(ExceptionType type)
-{
-	uint32_t handler = 0;
-	switch (cop0.sr.BEV) {
-		case true: 
-			handler = 0xbfc00180; 
-			break;
-		case false: 
-			handler = 0x80000080; 
-			break;
-	}
+    bool should_link = (op & 0x1E) == 0x10;
+    bool should_branch = (int)(registers[instr.rs()] ^ (op << 31)) < 0;
 
-	/* Get the Kernel-User mode bits. */
-	uint32_t mode = cop0.sr.raw & 0x3f;
-	/* Clear them. */
-	cop0.sr.raw &= ~0x3f;
-	/* Shift the to the left. */
-	cop0.sr.raw |= (mode << 2) & 0x3f;
-	/* Update the exec code. */
-	cop0.cause.exc_code = type;
-
-	/* Update the CAUSE register. */
-	if (delay_slot) {
-		cop0.epc = pc - 4;
-		cop0.cause.BD = true;
-	}
-	else {
-		cop0.epc = pc;
-		cop0.cause.BD = false;
-	}
-
-	/* Update PC to exception handler. */
-	pc = handler; 
-	next_pc = handler + 4;
-}
-
-void CPU::set_ext_irq(bool val)
-{
-	set_bit(cop0.cause.IP, 0, val);
-}
-
-void CPU::trigger_irq(Interrupt irq)
-{
-}
-
-void CPU::op_lui()
-{
-	auto data = instr.i_type.data;
-	auto rt = instr.r_type.rt;
-
-	uint32_t val = data << 16;
-	set_reg(rt, val);
-}
-
-void CPU::op_ori()
-{
-	auto data = instr.i_type.data;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-
-	uint32_t val = get_reg(rs) | data;
-	set_reg(rt, val);
-}
-
-void CPU::op_sw()
-{
-	auto data = (int16_t)instr.i_type.data;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-
-	uint32_t addr = get_reg(rs) + data;
-	
-	if (addr % 4 == 0)
-		write(addr, get_reg(rt));
-	else
-		exception(WriteError);
-}
-
-void CPU::op_lw()
-{
-	auto data = (int16_t)instr.i_type.data;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-
-	uint32_t s = get_reg(rs);
-	uint32_t addr = s + data;
-	
-	if (addr % 4 == 0) {
-		uint32_t val = read(addr);
-		load = std::make_pair(rt, val);
-	}
-	else {
-		exception(ReadError);
-	}
-}
-
-void CPU::op_sll()
-{
-	auto data = instr.r_type.shamt;
-	auto rt = instr.r_type.rt;
-	auto rd = instr.r_type.rd;
-
-	uint32_t val = get_reg(rt) << data;
-	set_reg(rd, val);
-}
-
-void CPU::op_addiu()
-{
-	auto data = (int16_t)instr.i_type.data;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-
-	uint32_t val = get_reg(rs) + data;
-	set_reg(rt, val);
-}
-
-void CPU::op_addi()
-{
-	int16_t data = instr.i_type.data;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-	
-	uint32_t v = get_reg(rs);
-	uint32_t result = v + data;
-	bool overflow = ((~(v ^ data)) & (v ^ result)) & 0x80000000;
-
-	if (overflow) {
-		exception(Overflow);
-		return;
-	}
-
-	set_reg(rt, result);
-}
-
-void CPU::op_j()
-{
-	uint32_t addr = instr.j_type.target;
-	next_pc = (pc & 0xf0000000) | (addr << 2);
-	
-	should_branch = true;
-}
-
-void CPU::op_or()
-{
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-	auto rd = instr.r_type.rd;
-
-	uint32_t val = get_reg(rs) | get_reg(rt);
-	set_reg(rd, val);
-}
-
-void CPU::op_cop0()
-{
-	switch (instr.r_type.rs) {
-		case 0b00000: 
-			op_mfc0(); 
-			break;
-		case 0b00100: 
-			op_mtc0(); 
-			break;
-		case 0b10000: 
-			op_rfe(); 
-			break;
-		default: 
-			panic("Cop0 unhanled opcode: 0x", instr.r_type.rs);
-	}
-}
-
-void CPU::op_mfc0()
-{
-	auto cpu_r = instr.r_type.rt;
-	auto cop_r = instr.r_type.rd;
-	
-	uint32_t val = cop0.regs[cop_r];
-	load = std::make_pair(cpu_r, val);
-}
-
-void CPU::op_mtc0()
-{
-	auto cpu_r = instr.r_type.rt;
-	auto cop_r = instr.r_type.rd;
-
-	uint32_t val = get_reg(cpu_r);
-	cop0.regs[cop_r] = val;
-}
-
-void CPU::op_cop1()
-{
-	exception(CopError);
-}
-
-void CPU::op_cop2()
-{
-	panic("Unhandled GTE instruction: ", instr.raw);
-}
-
-void CPU::op_cop3()
-{
-	exception(CopError);
-}
-
-void CPU::op_bne()
-{
-	auto offset = (int16_t)instr.i_type.data;
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-
-	if (get_reg(rs) != get_reg(rt))
-		branch(offset);
-}
-
-void CPU::op_break()
-{
-	exception(Break);
-}
-
-void CPU::op_syscall()
-{
-	exception(SysCall);
-}
-
-void CPU::op_rfe()
-{
-	auto mode = cop0.sr.raw & 0x3f;
-	cop0.sr.raw &= ~0x3f;
-	cop0.sr.raw |= (mode >> 2);
-}
-
-void CPU::op_lhu()
-{
-	auto data = (int16_t)instr.i_type.data;
-	auto rt = instr.r_type.rt;
-	auto base = instr.r_type.rs;
-
-	uint32_t addr = get_reg(base) + data;
-	
-	if (addr % 2 == 0) {
-		uint16_t val = read<uint16_t>(addr);
-		load = std::make_pair(rt, (uint32_t)val);
-	}
-	else {
-		exception(ReadError);
-	}
-}
-
-void CPU::op_lh()
-{
-	auto offset = (int16_t)instr.i_type.data;
-	auto base = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-
-	uint32_t addr = get_reg(base) + offset;
-
-	if (addr % 2 == 0) {
-		int16_t val = (int16_t)read<uint16_t>(addr);
-		load = std::make_pair(rt, (uint32_t)val);
-	}
-	else {
-		exception(ReadError);
-	}
-}
-
-void CPU::op_lwl()
-{
-	auto data = (int16_t)instr.i_type.data;
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-
-	uint32_t addr = get_reg(rs) + data;
-	uint32_t cur_v = out_regs[rt];
-
-	uint32_t aligned_addr = addr & ~3;
-	uint32_t aligned_word = read(aligned_addr);
-
-	uint32_t val;
-	switch (addr & 0x3f) {
-		case 0: 
-			val = (cur_v & 0x00ffffff) | (aligned_word << 24); 
-			break;
-		case 1: 
-			val = (cur_v & 0x0000ffff) | (aligned_word << 16); 
-			break;
-		case 2: 
-			val = (cur_v & 0x000000ff) | (aligned_word << 8); 
-			break;
-		case 3: 
-			val = (cur_v & 0x00000000) |  aligned_word; 
-			break;
-	};
-
-	load = std::make_pair(rt, val);
-}
-
-void CPU::op_lwr()
-{
-	auto data = (int16_t)instr.i_type.data;
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-
-	uint32_t addr = get_reg(rs) + data;
-	uint32_t cur_v = out_regs[rt];
-
-	uint32_t aligned_addr = addr & ~3;
-	uint32_t aligned_word = read(aligned_addr);
-
-	uint32_t val;
-	switch (addr & 0x3f) {
-		case 0: 
-			val = (cur_v & 0x00000000) | aligned_word; 
-			break;
-		case 1: 
-			val = (cur_v & 0xff000000) | (aligned_word >> 8);
-			break;
-		case 2: 
-			val = (cur_v & 0xffff0000) | (aligned_word >> 16); 
-			break;
-		case 3: 
-			val = (cur_v & 0xffffff00) | (aligned_word >> 24); 
-			break;
-	};
-
-	load = std::make_pair(rt, val);
-}
-
-void CPU::op_swl()
-{
-	auto data = (int16_t)instr.i_type.data;
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-
-	uint32_t addr = get_reg(rs) + data;
-	uint32_t val = get_reg(rt);
-
-	uint32_t aligned_addr = addr & ~3;
-	uint32_t cur_mem = read(aligned_addr);
-
-	uint32_t memory;
-	switch (addr & 3) {
-		case 0: 
-			memory = (cur_mem & 0xffffff00) | (val >> 24); 
-			break;
-		case 1: 
-			memory = (cur_mem & 0xffff0000) | (val >> 16); 
-			break;
-		case 2: 
-			memory = (cur_mem & 0xff000000) | (val >> 8); 
-			break;
-		case 3: 
-			memory = (cur_mem & 0x00000000) | val; 
-			break;
-	};
-
-	write<uint32_t>(aligned_addr, memory);
+    if (should_link) registers[31] = next_pc;
+    if (should_branch) branch();
 }
 
 void CPU::op_swr()
 {
-	auto data = (int16_t)instr.i_type.data;
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t aligned_addr = addr & 0xFFFFFFFC;
+    uint32_t aligned_load = read(aligned_addr);
 
-	uint32_t addr = get_reg(rs) + data;
-	uint32_t val = get_reg(rt);
+    uint32_t value = 0;
+    switch (addr & 0b11) {
+    case 0:
+        value = registers[instr.rt()]; break;
+    case 1:
+        value = (aligned_load & 0x000000FF) | (registers[instr.rt()] << 8);
+        break;
+    case 2:
+        value = (aligned_load & 0x0000FFFF) | (registers[instr.rt()] << 16);
+        break;
+    case 3:
+        value = (aligned_load & 0x00FFFFFF) | (registers[instr.rt()] << 24);
+        break;
+    }
 
-	uint32_t aligned_addr = addr & ~3;
-	uint32_t cur_mem = read(aligned_addr);
-
-	uint32_t memory;
-	switch (addr & 3) {
-		case 0: 
-			memory = (cur_mem & 0x00000000) | val; 
-			break;
-		case 1: 
-			memory = (cur_mem & 0x000000ff) | (val << 8); 
-			break;
-		case 2: 
-			memory = (cur_mem & 0x0000ffff) | (val << 16); 
-			break;
-		case 3: 
-			memory = (cur_mem & 0x00ffffff) | (val << 24); 
-			break;
-	};
-
-	write<uint32_t>(aligned_addr, memory);
+    write(aligned_addr, value);
 }
 
-void CPU::op_lwc0()
+void CPU::op_swl()
 {
-	exception(CopError);
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t aligned_addr = addr & 0xFFFFFFFC;
+    uint32_t aligned_load = read(aligned_addr);
+
+    uint32_t value = 0;
+    switch (addr & 0b11) {
+    case 0: value = (aligned_load & 0xFFFFFF00) | (registers[instr.rt()] >> 24); break;
+    case 1: value = (aligned_load & 0xFFFF0000) | (registers[instr.rt()] >> 16); break;
+    case 2: value = (aligned_load & 0xFF000000) | (registers[instr.rt()] >> 8); break;
+    case 3: value = registers[instr.rt()]; break;
+    }
+
+    write(aligned_addr, value);
 }
 
-void CPU::op_lwc1()
+void CPU::op_lwr()
 {
-	exception(CopError);
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t aligned_addr = addr & 0xFFFFFFFC;
+    uint32_t aligned_load = read(aligned_addr);
+
+    uint32_t value = 0;
+    uint32_t LRValue = registers[instr.rt()];
+
+    if (instr.rt() == memory_load.reg) {
+        LRValue = memory_load.value;
+    }
+
+    switch (addr & 0b11) {
+    case 0: value = aligned_load; break;
+    case 1: value = (LRValue & 0xFF000000) | (aligned_load >> 8); break;
+    case 2: value = (LRValue & 0xFFFF0000) | (aligned_load >> 16); break;
+    case 3: value = (LRValue & 0xFFFFFF00) | (aligned_load >> 24); break;
+    }
+
+    delayedLoad(instr.rt(), value);
 }
 
-void CPU::op_lwc2()
+void CPU::op_lwl()
 {
-	panic("Unhandled read from Cop2!", "");
-}
-
-void CPU::op_lwc3()
-{
-	exception(CopError);
-}
-
-void CPU::op_swc0()
-{
-	exception(CopError);
-}
-
-void CPU::op_swc1()
-{
-	exception(CopError);
-}
-
-void CPU::op_swc2()
-{
-	panic("Unhandled write to Cop2!", "");
-}
-
-void CPU::op_swc3()
-{
-	exception(CopError);
-}
-
-void CPU::op_illegal()
-{
-	exception(IllegalInstr);
-}
-
-void CPU::op_sltu()
-{
-	auto rd = instr.r_type.rd;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-
-	uint32_t val = get_reg(rs) < get_reg(rt);
-	set_reg(rd, val);
-}
-
-void CPU::op_addu()
-{
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-	auto rd = instr.r_type.rd;
-
-	uint32_t v = get_reg(rs) + get_reg(rt);
-	set_reg(rd, v);
-}
-
-void CPU::op_sh()
-{
-	auto offset = (int16_t)instr.i_type.data;
-	auto base = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-
-	uint32_t addr = get_reg(base) + offset;
-	uint16_t data = (uint16_t)get_reg(rt);
-	
-	if (addr % 2 == 0)
-		write<uint16_t>(addr, data);
-	else
-		exception(WriteError);
-}
-
-void CPU::op_jal()
-{
-	set_reg(31, next_pc);
-	op_j();
-}
-
-void CPU::op_andi()
-{
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-	auto imm = instr.i_type.data;
-
-	uint32_t val = get_reg(rs) & imm;
-	set_reg(rt, val);
-}
-
-void CPU::op_sb()
-{
-	auto offset = (int16_t)instr.i_type.data;
-	auto rt = instr.r_type.rt;
-	auto base = instr.r_type.rs;
-
-	uint32_t addr = get_reg(base) + offset;
-	uint8_t data = (uint8_t)get_reg(rt);
-
-	write<uint8_t>(addr, data);
-}
-
-void CPU::op_jr()
-{
-	auto rs = instr.r_type.rs;
-	next_pc = get_reg(rs);
-
-	should_branch = true;
-}
-
-void CPU::op_lb()
-{
-	auto offset = (int16_t)instr.i_type.data;
-	auto base = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-
-	uint32_t addr = get_reg(base) + offset;
-	int8_t data = (int8_t)read<uint8_t>(addr);
-	load = std::make_pair(rt, data);
-}
-
-void CPU::op_beq()
-{
-	auto offset = (int16_t)instr.i_type.data;
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-
-	if (get_reg(rs) == get_reg(rt))
-		branch(offset);
-}
-
-void CPU::op_and()
-{
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-	auto rd = instr.r_type.rd;
-
-	uint32_t val = get_reg(rs) & get_reg(rt);
-	set_reg(rd, val);
-}
-
-void CPU::op_add()
-{
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-	auto rd = instr.r_type.rd;
-
-	uint32_t v1 = get_reg(rs);
-	uint32_t v2 = get_reg(rt);
-	
-	uint32_t result = v1 + v2;
-	bool overflow = ((~(v1 ^ v2)) & (v1 ^ result)) & 0x80000000;
-
-	if (overflow) {
-		exception(Overflow);
-		return;
-	}
-
-	set_reg(rd, result);
-}
-
-void CPU::op_bgtz()
-{
-	auto offset = (int16_t)instr.i_type.data;
-	auto rs = instr.r_type.rs;
-
-	int32_t val = (int32_t)get_reg(rs);
-	if (val > 0)
-		branch(offset);
-}
-
-void CPU::op_blez()
-{
-	auto offset = (int16_t)instr.i_type.data;
-	auto rs = instr.r_type.rs;
-	
-	int32_t val = (int32_t)get_reg(rs);
-	if (val <= 0)
-		branch(offset);
-}
-
-void CPU::op_lbu()
-{
-	auto data = (int16_t)instr.i_type.data;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-
-	uint32_t addr = get_reg(rs) + data;
-	uint8_t val = read<uint8_t>(addr);
-
-	load = std::make_pair(rt, (uint32_t)val);
-}
-
-void CPU::op_jalr()
-{
-	auto rd = instr.r_type.rd;
-	auto rs = instr.r_type.rs;
-
-	set_reg(rd, next_pc);
-	next_pc = get_reg(rs);
-
-	should_branch = true;
-}
-
-void CPU::op_bxx()
-{
-	auto i = (int16_t)instr.i_type.data;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-
-	bool isbgez = instr.r_type.rt & 1;
-	bool islink = ((instr.raw >> 17) & 0xf) == 8;
-	int32_t v = (int32_t)get_reg(rs);
-
-	uint32_t test = v < 0;
-	test ^= isbgez;
-
-	if (islink)
-		set_reg(31, next_pc);
-
-	if (test != 0) {
-		branch(i);
-	}
-}
-
-void CPU::op_slti()
-{
-	int32_t i = (int16_t)instr.i_type.data;
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-
-	bool v = (int32_t)get_reg(rs) < i;
-	set_reg(rt, (uint32_t)v);
-}
-
-void CPU::op_subu()
-{
-	auto rd = instr.r_type.rd;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-
-	uint32_t val = get_reg(rs) - get_reg(rt);
-	set_reg(rd, val);
-}
-
-void CPU::op_sra()
-{
-	auto i = instr.r_type.shamt;
-	auto rd = instr.r_type.rd;
-	auto rt = instr.r_type.rt;
-
-	auto  val = (int32_t)get_reg(rt) >> i;
-	set_reg(rd, (uint32_t)val);
-}
-
-void CPU::op_div()
-{
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-
-	auto n = (int32_t)get_reg(rs);
-	auto d = (int32_t)get_reg(rt);
-
-	if (d == 0) {
-		// Division by zero, results are bogus
-		hi = (uint32_t)n;
-
-		if (n >= 0) {
-			lo = 0xffffffff;
-		}
-		else {
-			lo = 1;
-		}
-	}
-	else if ((uint32_t)n == 0x80000000 && d == -1) {
-		// Result is not representable in a 32bit signed integer
-		hi = 0;
-		lo = 0x80000000;
-	}
-	else {
-		hi = (uint32_t)(n % d);
-		lo = (uint32_t)(n / d);
-	}
-}
-
-void CPU::op_mlfo()
-{
-	auto rd = instr.r_type.rd;
-	set_reg(rd, lo);
-}
-
-void CPU::op_nor()
-{
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-	auto rd = instr.r_type.rd;
-
-	uint32_t val = !(get_reg(rs) | get_reg(rt));
-	set_reg(rd, val);
-}
-
-void CPU::op_slt()
-{
-	auto rd = instr.r_type.rd;
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-
-	int32_t t = static_cast<int32_t>(get_reg(rt));
-	int32_t s = static_cast<int32_t>(get_reg(rs));
-
-	uint32_t val = s < t;
-	set_reg(rd, val);
-}
-
-void CPU::op_sltiu()
-{
-	auto data = (int16_t)instr.i_type.data;
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-
-	uint32_t val = get_reg(rs) < data;
-	set_reg(rt, val);
-}
-
-void CPU::op_sub()
-{
-	auto rd = instr.r_type.rd;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-
-	int64_t val = (int64_t)get_reg(rs) - (int64_t)get_reg(rt);
-	if (val < INT_MIN || val > INT_MAX) exception(Overflow);
-	set_reg(rd, (uint32_t)val);
-}
-
-void CPU::op_xor()
-{
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-	auto rd = instr.r_type.rd;
-
-	uint32_t val = get_reg(rs) ^ get_reg(rt);
-	set_reg(rd, val);
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t aligned_addr = addr & 0xFFFFFFFC;
+    uint32_t aligned_load = read(aligned_addr);
+
+    uint32_t value = 0;
+    uint32_t LRValue = registers[instr.rt()];
+
+    if (instr.rt() == memory_load.reg) {
+        LRValue = memory_load.value;
+    }
+
+    switch (addr & 0b11) {
+    case 0: value = (LRValue & 0x00FFFFFF) | (aligned_load << 24); break;
+    case 1: value = (LRValue & 0x0000FFFF) | (aligned_load << 16); break;
+    case 2: value = (LRValue & 0x000000FF) | (aligned_load << 8); break;
+    case 3: value = aligned_load; break;
+    }
+    //Console.WriteLine("case " + (addr & 0b11) + " LWL Value " + value.ToString("x8"));
+    delayedLoad(instr.rt(), value);
 }
 
 void CPU::op_xori()
 {
-	auto rs = instr.r_type.rs;
-	auto rt = instr.r_type.rt;
-	auto data = instr.i_type.data;
-
-	uint32_t val = get_reg(rs) ^ data;
-	set_reg(rt, val);
+    setregisters(instr.rt(), registers[instr.rs()] ^ instr.imm());
 }
 
-void CPU::op_sllv()
+void CPU::op_sub()
 {
-	auto rd = instr.r_type.rd;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
+    int rs = (int)registers[instr.rs()];
+    int rt = (int)registers[instr.rt()];
 
-	uint32_t val = get_reg(rt) << (get_reg(rs) & 0x1f);
-	set_reg(rd, val);
-}
+    uint32_t sub = 0;
+    bool overflow = !safe_add(&sub, rs, -rt);
 
-void CPU::op_srav()
-{
-	auto rd = instr.r_type.rd;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-	
-	int32_t val = (int32_t)get_reg(rt) >> (get_reg(rs) & 0x1f);
-	set_reg(rd, (uint32_t)val);
-}
-
-void CPU::op_srl()
-{
-	auto i = instr.r_type.shamt;
-	auto rt = instr.r_type.rt;
-	auto rd = instr.r_type.rd;
-
-	uint32_t val = get_reg(rt) >> i;
-	set_reg(rd, val);
-}
-
-void CPU::op_srlv()
-{
-	auto rd = instr.r_type.rd;
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
-
-	uint32_t val = get_reg(rt) >> (get_reg(rs) & 0x1f);
-	set_reg(rd, val);
-}
-
-void CPU::op_divu()
-{
-	auto s = instr.r_type.rs;
-	auto t = instr.r_type.rt;
-	
-	auto n = get_reg(s);
-	auto d = get_reg(t);
-	
-	if (d == 0) {
-		hi = n;
-		lo = 0xffffffff;
-	}
-	else {
-		hi = n % d;
-		lo = n / d;
-	}
-}
-
-void CPU::op_mfhi()
-{
-	auto rd = instr.r_type.rd;
-	set_reg(rd, hi);
-}
-
-void CPU::op_mflo()
-{
-	auto rd = instr.r_type.rd;
-	set_reg(rd, lo);
-}
-
-void CPU::op_mthi()
-{
-	auto rs = instr.r_type.rs;
-	hi = get_reg(rs);
-}
-
-void CPU::op_mtlo()
-{
-	auto rs = instr.r_type.rs;
-	lo = get_reg(rs);
+    if (!overflow) {
+        setregisters(instr.rd(), sub);
+    }
+    else {
+        exception(ExceptionType::Overflow, instr.id());
+    }
 }
 
 void CPU::op_mult()
 {
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
+    int64_t value = (int64_t)(int)registers[instr.rs()] * (int64_t)(int)registers[instr.rt()]; //sign extend to pass amidog cpu test
 
-	int64_t v1 = (int32_t)get_reg(rs);
-	int64_t v2 = (int32_t)get_reg(rt);
-	uint64_t result = v1 * v2;
-	
-	hi = result >> 32;
-	lo = result;
+    hi = (uint32_t)(value >> 32);
+    lo = (uint32_t)value;
+}
+
+void CPU::op_break()
+{
+    exception(ExceptionType::Break);
+}
+
+void CPU::op_xor()
+{
+    setregisters(instr.rd(), registers[instr.rs()] ^ registers[instr.rt()]);
 }
 
 void CPU::op_multu()
 {
-	auto rt = instr.r_type.rt;
-	auto rs = instr.r_type.rs;
+    uint64_t value = (uint64_t)registers[instr.rs()] * (uint64_t)registers[instr.rt()]; //sign extend to pass amidog cpu test
 
-	uint64_t v1 = get_reg(rs);
-	uint64_t v2 = get_reg(rt);
-	uint64_t result = v1 * v2;
-	
-	hi = result >> 32;
-	lo = result;
+    hi = (uint32_t)(value >> 32);
+    lo = (uint32_t)value;
+}
+
+void CPU::op_srlv()
+{
+    setregisters(instr.rd(), registers[instr.rt()] >> (int)(registers[instr.rs()] & 0x1F));
+}
+
+void CPU::op_srav()
+{
+    setregisters(instr.rd(), (uint32_t)((int)registers[instr.rt()] >> (int)(registers[instr.rs()] & 0x1F)));
+}
+
+void CPU::op_nor()
+{
+    setregisters(instr.rd(), ~(registers[instr.rs()] | registers[instr.rt()]));
+}
+
+void CPU::op_lh()
+{
+    if (!cop0.sr.IsC) {
+        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+
+        if ((addr & 0x1) == 0) {
+            uint32_t value = (uint32_t)(short)read<uint16_t>(addr);
+            delayedLoad(instr.rt(), value);
+        }
+        else {
+            cop0.BadA = addr;
+            exception(ExceptionType::ReadError, instr.id());
+        }
+
+    }
+}
+
+void CPU::op_sllv()
+{
+    setregisters(instr.rd(), registers[instr.rt()] << (int)(registers[instr.rs()] & 0x1F));
+}
+
+void CPU::op_lhu()
+{
+    if (!cop0.sr.IsC) {
+        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+
+        if ((addr & 0x1) == 0) {
+            uint32_t value = read<uint16_t>(addr);
+            //Console.WriteLine("LHU: " + addr.ToString("x8") + " value: " + value.ToString("x8"));
+            delayedLoad(instr.rt(), value);
+        }
+        else {
+            cop0.BadA = addr;
+            exception(ExceptionType::ReadError, instr.id());
+        }
+
+    } //else Console.WriteLine("Ignoring Load");
+}
+
+void CPU::op_rfe()
+{
+    uint32_t mode = cop0.sr.raw & 0x3F;
+    
+    /* Shift kernel/user mode bits back. */
+    cop0.sr.raw &= ~(uint32_t)0xF;
+    cop0.sr.raw |= mode >> 2;
+}
+
+void CPU::op_mthi()
+{
+    hi = registers[instr.rs()];
+}
+
+void CPU::op_mtlo()
+{
+    lo = registers[instr.rs()];
+}
+
+void CPU::op_syscall()
+{
+    exception(ExceptionType::Syscall, instr.id());
+}
+
+void CPU::op_slt()
+{
+    bool condition = (int)registers[instr.rs()] < (int)registers[instr.rt()];
+    setregisters(instr.rd(), condition ? 1u : 0u);
+}
+
+void CPU::op_mfhi()
+{
+    setregisters(instr.rd(), hi);
+}
+
+void CPU::op_divu()
+{
+    uint32_t n = registers[instr.rs()];
+    uint32_t d = registers[instr.rt()];
+
+    if (d == 0) {
+        hi = n;
+        lo = 0xFFFFFFFF;
+    }
+    else {
+        hi = n % d;
+        lo = n / d;
+    }
+}
+
+void CPU::op_sltiu()
+{
+    bool condition = registers[instr.rs()] < instr.imm_s();
+    setregisters(instr.rt(), condition ? 1u : 0u);
+}
+
+void CPU::op_srl()
+{
+    setregisters(instr.rd(), registers[instr.rt()] >> (int)instr.sa());
+}
+
+void CPU::op_mflo()
+{
+    setregisters(instr.rd(), lo);
+}
+
+void CPU::op_div()
+{
+    int n = (int)registers[instr.rs()];
+    int d = (int)registers[instr.rt()];
+
+    if (d == 0) {
+        hi = (uint32_t)n;
+        if (n >= 0) {
+            lo = 0xFFFFFFFF;
+        }
+        else {
+            lo = 1;
+        }
+    }
+    else if ((uint32_t)n == 0x80000000 && d == -1) {
+        hi = 0;
+        lo = 0x80000000;
+    }
+    else {
+        hi = (uint32_t)(n % d);
+        lo = (uint32_t)(n / d);
+    }
+}
+
+void CPU::op_sra()
+{
+    setregisters(instr.rd(), (uint32_t)((int)registers[instr.rt()] >> (int)instr.sa()));
+}
+
+void CPU::op_subu()
+{
+    setregisters(instr.rd(), registers[instr.rs()] - registers[instr.rt()]);
+}
+
+void CPU::op_slti()
+{
+    bool condition = (int)registers[instr.rs()] < (int)instr.imm_s();
+    setregisters(instr.rt(), condition ? 1u : 0u);
+}
+
+void CPU::branch()
+{
+    took_branch = true;
+    next_pc = pc + (instr.imm_s() << 2);
+}
+
+void CPU::op_jalr()
+{
+    setregisters(instr.rd(), next_pc);
+    op_jr();
+}
+
+void CPU::op_lbu()
+{
+    if (!cop0.sr.IsC) {
+        uint32_t value = read<uint8_t>(registers[instr.rs()] + instr.imm_s());
+        delayedLoad(instr.rt(), value);
+    }
+}
+
+void CPU::op_blez()
+{
+    is_branch = true;
+    if (((int)registers[instr.rs()]) <= 0) {
+        branch();
+    }
+}
+
+void CPU::op_bgtz()
+{
+    is_branch = true;
+    if (((int)registers[instr.rs()]) > 0) {
+        branch();
+    }
+}
+
+void CPU::op_add()
+{
+    int rs = (int)registers[instr.rs()];
+    int rt = (int)registers[instr.rt()];
+
+    uint32_t add = 0;
+    bool overflow = !safe_add(&add, rs, rt);
+
+    if (!overflow) {
+        setregisters(instr.rd(), add);
+    }
+    else {
+        exception(ExceptionType::Overflow, instr.id());
+    }
+}
+
+void CPU::op_and()
+{
+    setregisters(instr.rd(), registers[instr.rs()] & registers[instr.rt()]);
+}
+
+void CPU::op_mfc0()
+{
+    uint32_t mfc = instr.rd();
+    
+    if (mfc == 3 || mfc >= 5 && mfc <= 9 || mfc >= 11 && mfc <= 15) {
+        delayedLoad(instr.rt(), cop0.regs[mfc]);
+    }
+    else {
+        exception(ExceptionType::IllegalInstr, instr.id());
+    }
+}
+
+void CPU::op_beq()
+{
+    is_branch = true;
+    if (registers[instr.rs()] == registers[instr.rt()]) {
+        branch();
+    }
+}
+
+void CPU::op_lb()
+{ //todo redo this as it unnecesary read
+    if (!cop0.sr.IsC) {
+        uint32_t value = (uint32_t)(uint8_t)read<uint8_t>(registers[instr.rs()] + instr.imm_s());
+        delayedLoad(instr.rt(), value);
+    } //else Console.WriteLine("Ignoring Write");
+}
+
+void CPU::op_jr()
+{
+    is_branch = true;
+    took_branch = true;
+    next_pc = registers[instr.rs()];
+}
+
+void CPU::op_sb()
+{
+    if (!cop0.sr.IsC)
+        write<uint8_t>(registers[instr.rs()] + instr.imm_s(), (int8_t)registers[instr.rt()]);
+}
+
+void CPU::op_andi()
+{
+    setregisters(instr.rt(), registers[instr.rs()] & instr.imm());
+}
+
+void CPU::op_jal()
+{
+    setregisters(31, next_pc);
+    op_j();
+}
+
+void CPU::op_sh()
+{
+    if (!cop0.sr.IsC) {
+        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+
+        if ((addr & 0x1) == 0) {
+            write<uint16_t>(addr, (uint16_t)registers[instr.rt()]);
+        }
+        else {
+            cop0.BadA = addr;
+            exception(ExceptionType::WriteError, instr.id());
+        }
+    }
+    //else Console.WriteLine("Ignoring Write");
+}
+
+void CPU::op_addu()
+{
+    setregisters(instr.rd(), registers[instr.rs()] + registers[instr.rt()]);
+}
+
+void CPU::op_sltu()
+{
+    bool condition = registers[instr.rs()] < registers[instr.rt()];
+    setregisters(instr.rd(), condition ? 1u : 0u);
+}
+
+void CPU::op_lw()
+{
+    if (!cop0.sr.IsC) {
+        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+
+        if ((addr & 0x3) == 0) {
+            uint32_t value = read(addr);
+            delayedLoad(instr.rt(), value);
+        }
+        else {
+            cop0.BadA = addr;
+            exception(ExceptionType::ReadError, instr.id());
+        }
+
+    }
+}
+
+void CPU::op_addi()
+{
+    int rs = (int)registers[instr.rs()];
+    int imm_s = (int)instr.imm_s();
+
+    uint32_t addi = 0;
+    bool overflow = !safe_add(&addi, rs, imm_s);
+
+    if (!overflow) {
+        setregisters(instr.rt(), addi);
+    }
+    else {
+        exception(ExceptionType::Overflow, instr.id());
+    }
+}
+
+void CPU::op_bne()
+{
+    is_branch = true;
+    if (registers[instr.rs()] != registers[instr.rt()]) {
+        branch();
+    }
+}
+
+void CPU::op_mtc0()
+{
+    uint32_t value = registers[instr.rt()];
+    uint32_t reg = instr.rd();
+
+    //MTC0 can trigger soft interrupts
+    bool prev_IEC = cop0.sr.IEc;
+
+    if (reg == 13) { //only bits 8 and 9 are writable
+        cop0.cause.raw &= ~(uint32_t)0x300;
+        cop0.cause.raw |= value & 0x300;
+    }
+    else {
+        cop0.regs[reg] = value; //There are some zeros on SR that shouldnt be writtable also todo: registers > 16?
+    }
+
+    uint32_t irq_mask = cop0.sr.Sw | (cop0.sr.Intr >> 2);
+    uint32_t irq_pending = cop0.cause.Sw | (cop0.cause.IP >> 2);
+
+    if (!prev_IEC && cop0.sr.IEc && (irq_mask & irq_pending) > 0) {
+        pc = next_pc;
+        exception(ExceptionType::Interrupt, instr.id());
+    }
+}
+
+void CPU::op_or()
+{
+    setregisters(instr.rd(), registers[instr.rs()] | registers[instr.rt()]);
+}
+
+void CPU::op_j()
+{
+    is_branch = true;
+    took_branch = true;
+    next_pc = (next_pc & 0xF0000000) | (instr.addr() << 2);
+}
+
+void CPU::op_addiu()
+{
+    setregisters(instr.rt(), registers[instr.rs()] + instr.imm_s());
+}
+
+void CPU::op_sll()
+{
+    setregisters(instr.rd(), registers[instr.rt()] << (int)instr.sa());
+}
+
+void CPU::op_sw()
+{
+    if (!cop0.sr.IsC) {
+        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+
+        if ((addr & 0x3) == 0) {
+            write(addr, registers[instr.rt()]);
+        }
+        else {
+            cop0.BadA = addr;
+            exception(ExceptionType::WriteError, instr.id());
+        }
+    }
+}
+
+void CPU::op_lui()
+{
+    setregisters(instr.rt(), instr.imm() << 16);
+}
+
+void CPU::op_ori()
+{
+    setregisters(instr.rt(), registers[instr.rs()] | instr.imm());
+}
+
+void CPU::setregisters(uint32_t regN, uint32_t value)
+{
+    write_back.reg = regN;
+    write_back.value = value;
+}
+
+void CPU::delayedLoad(uint32_t regN, uint32_t value)
+{
+    delayed_memory_load.reg = regN;
+    delayed_memory_load.value = value;
 }

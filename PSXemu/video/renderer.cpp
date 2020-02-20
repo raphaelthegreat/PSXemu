@@ -1,6 +1,17 @@
 ﻿#include "renderer.h"
 #include <GLFW/glfw3.h>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <gl/GLU.h>
+#endif
+
+double map(double x, double in_min, double in_max, double out_min, double out_max)
+{
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
 Renderer::Renderer(int _width, int _height, std::string title)
 {
 	glfwInit();
@@ -14,104 +25,157 @@ Renderer::Renderer(int _width, int _height, std::string title)
 	width = _width; height = _height;
 	glfwSetFramebufferSizeCallback(window, resize_func);
 
-    shader = std::make_unique<Shader>();
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
     
-    shader->load("shaders/vertex.vert", ShaderType::Vertex);
-    shader->load("shaders/fragment.frag", ShaderType::Fragment);
-    shader->build();
+    glGenFramebuffersEXT(1, &fbo);
+    glBindFramebufferEXT(GL_FRAMEBUFFER, fbo);
 
-    glGenVertexArrays(1, &vao);
-    glBindVertexArray(vao);
+    glGenTextures(1, &color_buffer);
+    glBindTexture(GL_TEXTURE_2D, color_buffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1024, 768, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_2D, 0);
 
-    vertex_buffer = std::make_unique<Buffer<Pos2>>();
-    vertex_buffer->bind();
+    glFramebufferTexture2DEXT(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color_buffer, 0);
 
-    glVertexAttribIPointer(0, 2, GL_SHORT, sizeof(Pos2), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    color_buffer = std::make_unique<Buffer<Color>>();
-    color_buffer->bind();
-
-    glVertexAttribIPointer(1, 3, GL_UNSIGNED_BYTE, sizeof(Color), (void*)0);
-    glEnableVertexAttribArray(1);
-
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        printf("[OpenGL] Could not create screen surface!\n");
+        exit(0);
+    }
 }
 
 Renderer::~Renderer()
 {
-    glDeleteVertexArrays(1, &vao);
     glfwTerminate();
 }
 
 void Renderer::push_triangle(Verts& pos, Colors& colors)
 {
-    if (count + 3 > BUFFER_SIZE) // Force draw if pending overflow
-        draw_scene();
-
+    glBegin(GL_TRIANGLES);
+    /* Triangle 0. */
     for (int i = 0; i < 3; i++) {
-        vertex_buffer->set(count, pos[i]);
-        color_buffer->set(count, colors[i]);
-        count++;
+        Color8& c = colors[i];
+        Pos2i& p = pos[i];
+
+        double xvert = map(p.x, 0, 640, -1, 1);
+        double yvert = map(p.y, 0, 480, 1, -1);
+
+        glColor3ub(c.red, c.green, c.blue);
+        glVertex2f(xvert, yvert);
     }
+    glEnd();
 }
 
 void Renderer::push_quad(Verts& pos, Colors& colors)
 {
-    if (count + 6 > BUFFER_SIZE)
-        draw_scene();
-
+    glBegin(GL_TRIANGLES);
+    /* Triangle 0 */
     for (int i = 0; i < 3; i++) {
-        vertex_buffer->set(count, pos[i]);
-        color_buffer->set(count, colors[i]);
-        count++;
-    }
+        Color8& c = colors[i];
+        Pos2i& p = pos[i];
 
+        double xvert = map(p.x, 0, 640, -1, 1);
+        double yvert = map(p.y, 0, 480, 1, -1);
+
+        glColor3ub(c.red, c.green, c.blue);
+        glVertex2f(xvert, yvert);
+    }
+    /* Triangle 1. */
     for (int i = 1; i < 4; i++) {
-        vertex_buffer->set(count, pos[i]);
-        color_buffer->set(count, colors[i]);
-        count++;
+        Color8& c = colors[i];
+        Pos2i& p = pos[i];
+
+        double xvert = map(p.x, 0, 640, -1, 1);
+        double yvert = map(p.y, 0, 480, 1, -1);
+
+        glColor3ub(c.red, c.green, c.blue);
+        glVertex2f(xvert, yvert);
     }
+    glEnd();
 }
 
-void Renderer::push_image(TextureBuffer& buffer)
+void Renderer::push_textured_quad(Verts& pos, Coords& coords, Texture8* texture)
 {
-    textures.push_back(buffer);
-}
+    if (texture != NULL)
+        texture->bind();
 
-void Renderer::draw_scene()
-{
-    glClear(GL_COLOR_BUFFER_BIT);
-    shader->bind();
-    
-    glMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
-    glBindVertexArray(vao);
-    glDrawArrays(GL_TRIANGLES, 0, count);
+    glEnable(GL_TEXTURE_2D);
+    glBegin(GL_TRIANGLES);
 
-    GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    /* Triangle 0. */
+    for (int i = 0; i < 3; i++) {
+        Pos2f& c = coords[i];
+        Pos2i& p = pos[i];
 
-    while (true) {
-        auto status = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, 10000000);
-        if (status == GL_ALREADY_SIGNALED || 
-            status == GL_CONDITION_SATISFIED)
-            break;
+        double xvert = map(p.x, 0, 640, -1, 1);
+        double yvert = map(p.y, 0, 480, 1, -1);
+        
+        glTexCoord2f(c.x, c.y);
+        glVertex2f(xvert, yvert);
     }
+
+    /* Triangle 1. */
+    for (int i = 1; i < 4; i++) {
+        Pos2f& c = coords[i];
+        Pos2i& p = pos[i];
+
+        double xvert = map(p.x, 0, 640, -1, 1);
+        double yvert = map(p.y, 0, 480, 1, -1);
+        
+        glTexCoord2f(c.x, c.y);
+        glVertex2f(xvert, yvert);
+    }
+
+    glEnd();
     
-    count = 0;
+    if (texture != NULL)
+        texture->unbind();
+
+    glDisable(GL_TEXTURE_2D);
 }
 
 void Renderer::set_draw_offset(int16_t x, int16_t y)
 {
-    this->draw_scene();
+    offsetx = x;
+    offsety = y;
+}
+
+void Renderer::draw_scene()
+{
+    glBindFramebufferEXT(GL_FRAMEBUFFER, 0);
     
-    auto loc = glGetUniformLocation(shader->raw(), "offset");
-    glUniform2i(loc, x, y);
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, color_buffer);
+
+    glBegin(GL_TRIANGLES);
+    glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.0, 1.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex2f(1.0f, -1.0f);
+    glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
+
+    glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.0, 1.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex2f(1.0f, -1.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex2f(1.0f, 1.0f);
+
+    glEnd();
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDisable(GL_TEXTURE_2D);
+    glBindFramebufferEXT(GL_FRAMEBUFFER, fbo);
+
+    glClear(GL_COLOR_BUFFER_BIT);
 }
 
 void Renderer::update()
 {
-	glfwPollEvents();
-	glfwSwapBuffers(window);
+    glfwPollEvents();
+    draw_scene();
+    glfwSwapBuffers(window);
 }
 
 bool Renderer::is_open()
@@ -121,5 +185,5 @@ bool Renderer::is_open()
 
 void Renderer::resize_func(GLFWwindow* window, int width, int height)
 {
-	glViewport(0, 0, width, height);
+	//glViewport(0, 0, width, height);
 }

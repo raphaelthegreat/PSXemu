@@ -13,3 +13,5 @@ void panic(const char* msg, const char* val);
 void panic(const char* msg, uint32_t hexval);
 
 void log(const char* msg, uint32_t hexval);
+
+bool safe_add(uint32_t* out, int a, int b);

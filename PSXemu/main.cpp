@@ -8,6 +8,5 @@ int main()
 
 	while (renderer.is_open()) {
 		emulator.tick();
-		//renderer.update();
 	}
 }

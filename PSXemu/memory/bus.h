@@ -3,14 +3,13 @@
 #include <optional>
 #include <memory>
 
-#include <devices/timer.h>
 #include <memory/bios.h>
 #include <memory/ram.h>
 #include <memory/dma.h>
 #include <video/gpu.h>
+#include <cpu/cache.h>
 #include <devices/irq.h>
 #include <cpu/util.h>
-#include <cpu/cache.h>
 using std::unique_ptr;
 
 class Range {
@@ -30,10 +29,6 @@ public:
 	Bus(std::string bios_path, Renderer* renderer);
 	~Bus() = default;
 
-	/* Attach devices to the bus. */
-	void set_cpu(CPU* _cpu);
-	void set_gpu(GPU* _gpu);
-
 	template <typename T = uint32_t>
 	T read(uint32_t addr);
 
@@ -47,12 +42,8 @@ public:
 	unique_ptr<Ram> ram;
 
 	DMAController dma;
+	InterruptController interruptController;
 	CacheControl cache_ctrl;
-	IRQManager irq_manager;
-	Timer timers[NUM_TIMERS] = { /* Intialise timers. */
-			{ TimerID::TMR0, this }, 
-			{ TimerID::TMR1, this }, 
-			{ TimerID::TMR2, this } };
 
 	Renderer* gl_renderer;
 	CPU* cpu;

@@ -4,38 +4,32 @@
 
 uint32_t bit_range(uint32_t num, int start, int end)
 {
-	std::bitset<32> number(num);
-	std::bitset<32> range(0);
-
-	for (int i = 0; i < end - start; i++)
-		range[i] = number[i + start];
-
-	return range.to_ulong();
+	uint32_t mask = (1 << end - start) - 1;
+	num &= mask << start;
+	return num >> start;
 }
 
 uint32_t set_bit_range(uint32_t num, int start, int end, uint32_t _range)
 {
-	std::bitset<32> number(num);
-	std::bitset<32> range(_range);
-	
-	for (int i = 0; i < end - start; i++) 
-		number[i + start] = range[i];
+	uint32_t mask = (1 << end - start) - 1;
 
-	return number.to_ulong();
+	num &= ~(mask << start);
+	num |= ((_range & mask) << start);
+
+	return num;
 }
 
 bool get_bit(uint32_t num, int b)
 {
-	std::bitset<32> number(num);
-	return number[b];
+	return num & (1 << b);
 }
 
 uint32_t set_bit(uint32_t num, int b, bool v)
 {
-	std::bitset<32> number(num);
-	number[b] = v;
+	if (v) num |= (1 << b);
+	else num &= ~(1 << b);
 
-	return number.to_ulong();
+	return num;
 }
 
 void panic(const char* msg, const char* val)
@@ -53,4 +47,23 @@ void panic(const char* msg, uint32_t val)
 void log(const char* msg, uint32_t hexval)
 {
 	std::clog << msg << std::hex << hexval << '\n';
-}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+}
+
+bool safe_add(uint32_t* out, int a, int b)
+{
+	if (a >= 0) {
+		if (b > (INT_MAX - a)) {
+			/* Overflow */
+			return false;
+		}
+	}
+	else {
+		if (b < (INT_MIN - a)) {
+			/* Underflow */
+			return false;
+		}
+	}
+
+	*out = a + b;
+	return true;
+}

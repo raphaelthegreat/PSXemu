@@ -2,12 +2,15 @@
 #include "opengl/buffer.h"
 #include "opengl/shader.h"
 #include "opengl/texture.h"
+#include <unordered_map>
 #include <memory>
 
 using std::unique_ptr;
 
-typedef std::vector<Pos2> Verts;
-typedef std::vector<Color> Colors;
+typedef std::vector<Pos2i> Verts;
+typedef std::vector<Pos2f> Coords;
+typedef std::vector<Color8> Colors;
+typedef std::vector<uint8_t> Pixels;
 
 class GLFWwindow;
 class Renderer {
@@ -17,10 +20,10 @@ public:
 
 	void push_triangle(Verts& pos, Colors& colors);
 	void push_quad(Verts& pos, Colors& colors);
-	void push_image(TextureBuffer& buffer);
-	void draw_scene();
-
+	void push_textured_quad(Verts& pos, Coords& coords, Texture8* texture);
+	
 	void set_draw_offset(int16_t x, int16_t y);
+	void draw_scene();
 
 	void update();
 	bool is_open();
@@ -30,10 +33,6 @@ public:
 public:
 	GLFWwindow* window;
 	int32_t width, height;
-	uint32_t vao, count;
-
-	unique_ptr<Shader> shader;
-	unique_ptr<Buffer<Color>> color_buffer;
-	unique_ptr<Buffer<Pos2>> vertex_buffer;
-	std::vector<TextureBuffer> textures;
+	uint32_t offsetx, offsety;
+	uint32_t fbo, color_buffer;
 };                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
