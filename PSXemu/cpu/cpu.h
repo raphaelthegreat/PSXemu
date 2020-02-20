@@ -11,6 +11,12 @@ struct MEM {
     uint32_t value = 0;
 };
 
+/* Memory Ranges. */
+const Range KSEG = Range(0x00000000, 2048 * 1024 * 1024);
+const Range KSEG0 = Range(0x80000000, 512 * 1024 * 1024);
+const Range KSEG1 = Range(0xA0000000, 512 * 1024 * 1024);
+const Range KSEG2 = Range(0xC0000000, 1024 * 1024 * 1024);
+
 /* A class implemeting the MIPS R3000A CPU. */
 class CPU {
 public:
@@ -28,6 +34,13 @@ public:
     void exception(ExceptionType cause, uint32_t cop = 0);
     void setregisters(uint32_t regN, uint32_t value);
     void delayedLoad(uint32_t regN, uint32_t value);
+
+    /* Bus communication. */
+    template <typename T = uint32_t>
+    T read(uint32_t addr);
+    
+    template <typename T = uint32_t>
+    void write(uint32_t addr, T data);
 
     /* Opcodes. */
     void op_special(); void op_cop2(); void op_cop0();
@@ -78,6 +91,7 @@ public:
     bool in_delay_slot_took_branch;
 
     uint32_t exception_addr[2] = { 0x80000080, 0xBFC00180 };
+    CacheLine instr_cache[256] = {};
 
     /* Coprocessors. */
     Cop0 cop0;
@@ -95,3 +109,40 @@ public:
     /* Opcode lookup table. */
     std::unordered_map<uint32_t, CPUfunc> lookup, special;
 };
+
+template<typename T>
+inline T CPU::read(uint32_t addr)
+{
+    return bus->read<T>(addr);
+}
+
+template<typename T>
+inline void CPU::write(uint32_t addr, T data)
+{
+    if (cop0.sr.IsC) {
+        CacheControl& cc = bus->cache_ctrl;
+
+        Address address;
+        address.raw = addr;
+
+        /* Check if caching is enabled. */
+        if (!cc.is1) {
+            printf("Unsupported write while cache is enabled!\n");
+            exit(0);
+        }
+
+        CacheLine& line = instr_cache[address.cache_line];
+
+        /* Invalid cache line if TAG test is enabled. */
+        if (cc.tag) {
+            /* Invalidate by pushing index out of range. */
+            line.tag.index = 4;
+        } /* Write to cache. */
+        else {
+            line.instrs[address.index].value = data;
+        }
+    }
+    else {
+        bus->write<T>(addr, data);
+    }
+}

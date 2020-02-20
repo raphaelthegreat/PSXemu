@@ -21,8 +21,4 @@ struct Instr {
 
     //id / Cop
     uint32_t id() { return opcode() & 0x3; } //This is used mainly for coprocesor opcode id but its also used on opcodes that trigger exception
-
-    void Decode(uint32_t instr) {
-        value = instr;
-    }
 };

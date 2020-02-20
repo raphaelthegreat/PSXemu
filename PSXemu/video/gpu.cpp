@@ -2,8 +2,6 @@
 #include <cpu/util.h>
 #include <cpu/cpu.h>
 #include <video/renderer.h>
-#include <Windows.h>
-#include <gl/GLU.h>
 
 /* GPU class implementation */
 GPU::GPU(Renderer* renderer)
@@ -35,13 +33,13 @@ GPU::GPU(Renderer* renderer)
 
 	dot_clock = 0;
 	frame_count = 0;
-	
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	
-	gluOrtho2D(0.0, 1280, 960, 0.0);
+
+	current_texture = new Texture8(256, 256, NULL, Filtering::Nearest);
+}
+
+GPU::~GPU()
+{
+	delete current_texture;
 }
 
 uint32_t GPU::get_status()
@@ -573,11 +571,6 @@ void GPU::gp0_shaded_quad_blend()
 	/* Loop through the pixels in the texture page. */
 	for (int y = 0; y < height; y++) {
 		for (int x = 0; x < width / 4; x++) {
-			image[x * 4 + 0][y] = clut_table[vram.buffer[tx + x][ty + y].ll];
-			image[x * 4 + 1][y] = clut_table[vram.buffer[tx + x][ty + y].ml];
-			image[x * 4 + 2][y] = clut_table[vram.buffer[tx + x][ty + y].mr];
-			image[x * 4 + 3][y] = clut_table[vram.buffer[tx + x][ty + y].rr];
-			
 			/* For each pixel in a batch of 4 pixels seperate rgb colors. */
 			for (int k = 0; k < 4; k++) {
 				uint32_t mask = 15 << 4 * k;
@@ -613,23 +606,15 @@ void GPU::gp0_shaded_quad_blend()
 		}
 	}
 	
-	/* Create TextureInfo object. */
-	TextureInfo info;
-	info.width = width;
-	info.height = height;
-	info.vram_x = start_x;
-	info.vram_y = start_y;
-	info.format = Format::RGBA;
-
-	/* Update texture with generated pixels. */
-	gl_renderer->update_texture(info, pixels);
+	/* Create texture. */
+	current_texture->recreate(width, height, &pixels.front());
 
 	/* Clear tables after use. */
 	clut_table.clear();
 	pixels.clear();
 
 	/* Push the quad to the renderer to be drawn. */
-	gl_renderer->push_textured_quad(verts, coords, info);
+	gl_renderer->push_textured_quad(verts, coords, current_texture);
 }
 
 void GPU::gp0_shaded_trig()

@@ -62,7 +62,7 @@ public:
 template<typename T>
 inline Buffer<T>::Buffer()
 {
-	GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT;
+	GLbitfield flags = GL_MAP_WRITE_BIT ;
 	glGenBuffers(1, &vbo);
 
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);

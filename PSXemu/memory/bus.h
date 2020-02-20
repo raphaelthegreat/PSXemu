@@ -7,6 +7,7 @@
 #include <memory/ram.h>
 #include <memory/dma.h>
 #include <video/gpu.h>
+#include <cpu/cache.h>
 #include <devices/irq.h>
 #include <cpu/util.h>
 using std::unique_ptr;
@@ -42,6 +43,7 @@ public:
 
 	DMAController dma;
 	InterruptController interruptController;
+	CacheControl cache_ctrl;
 
 	Renderer* gl_renderer;
 	CPU* cpu;

@@ -104,6 +104,7 @@
     <ClCompile Include="video\vram.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="cpu\cache.h" />
     <ClInclude Include="cpu\cop0.h" />
     <ClInclude Include="cpu\instr.h" />
     <ClInclude Include="devices\irq.h" />

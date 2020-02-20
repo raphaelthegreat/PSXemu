@@ -70,6 +70,7 @@ class Renderer;
 class GPU {
 public:
 	GPU(Renderer* renderer);
+	~GPU();
 
 	uint32_t get_status();
 	uint32_t get_read();
@@ -164,12 +165,12 @@ public:
 
 	uint32_t frame_count;
 	uint32_t dot_clock;
-
+	
 	bool in_vblank;
 	GPUMode gpu_mode;
+	Texture8* current_texture;
 	Renderer* gl_renderer;
 
-	uint32_t image[256 * 4][256];
 	/* Intermmediate pixel data. */
 	std::vector<uint8_t> pixels;
 	/* The CLUT table can vary in size based on texture depth. */

@@ -47,7 +47,7 @@ void CPU::reset()
 
 void CPU::handle_interrupts()
 {
-    uint32_t load = bus->read(pc);
+    uint32_t load = read(pc);
     uint32_t instr = load >> 26;
     
     /* If it is a GTE instruction do not execute interrupt! */
@@ -74,8 +74,42 @@ void CPU::handle_interrupts()
 
 void CPU::fetch()
 {
-    uint32_t load = bus->read(pc);
-    
+    CacheControl& cc = bus->cache_ctrl;
+
+    /* Get PC address. */
+    Address addr;
+    addr.raw = pc;
+
+    bool kseg1 = KSEG1.contains(pc).has_value();
+    if (!kseg1 && cc.is1) {
+
+        /* Fetch cache line and check it's validity. */
+        CacheLine& line = instr_cache[addr.cache_line];
+        bool not_valid = line.tag.tag != addr.tag;
+        not_valid |= line.tag.index > addr.index;
+
+        /* Handle cache miss. */
+        if (not_valid) {
+            uint32_t cpc = pc;
+
+            /* Move adjacent data to the cache. */
+            for (int i = addr.index; i < 4; i++) {
+                line.instrs[i].value = read(cpc);
+                cpc += 4;
+            }
+        }
+
+        /* Validate the cache line. */
+        line.tag.raw = pc & 0xfffff00c;
+
+        /* Get instruction from cache. */
+        instr = line.instrs[addr.index];
+    }
+    else {
+        /* Fetch instruction from main RAM. */
+        instr.value = read(pc);
+    }
+
     /* Update PC. */
     current_pc = pc;
     pc = next_pc;
@@ -94,8 +128,6 @@ void CPU::fetch()
         exception(ExceptionType::ReadError);
         return;
     }
-
-    instr.Decode(load);
 }
 
 void CPU::exception(ExceptionType cause, uint32_t cop)
@@ -164,7 +196,7 @@ void CPU::op_swr()
 {
     uint32_t addr = registers[instr.rs()] + instr.imm_s();
     uint32_t aligned_addr = addr & 0xFFFFFFFC;
-    uint32_t aligned_load = bus->read(aligned_addr);
+    uint32_t aligned_load = read(aligned_addr);
 
     uint32_t value = 0;
     switch (addr & 0b11) {
@@ -181,14 +213,14 @@ void CPU::op_swr()
         break;
     }
 
-    bus->write(aligned_addr, value);
+    write(aligned_addr, value);
 }
 
 void CPU::op_swl()
 {
     uint32_t addr = registers[instr.rs()] + instr.imm_s();
     uint32_t aligned_addr = addr & 0xFFFFFFFC;
-    uint32_t aligned_load = bus->read(aligned_addr);
+    uint32_t aligned_load = read(aligned_addr);
 
     uint32_t value = 0;
     switch (addr & 0b11) {
@@ -198,14 +230,14 @@ void CPU::op_swl()
     case 3: value = registers[instr.rt()]; break;
     }
 
-    bus->write(aligned_addr, value);
+    write(aligned_addr, value);
 }
 
 void CPU::op_lwr()
 {
     uint32_t addr = registers[instr.rs()] + instr.imm_s();
     uint32_t aligned_addr = addr & 0xFFFFFFFC;
-    uint32_t aligned_load = bus->read(aligned_addr);
+    uint32_t aligned_load = read(aligned_addr);
 
     uint32_t value = 0;
     uint32_t LRValue = registers[instr.rt()];
@@ -228,7 +260,7 @@ void CPU::op_lwl()
 {
     uint32_t addr = registers[instr.rs()] + instr.imm_s();
     uint32_t aligned_addr = addr & 0xFFFFFFFC;
-    uint32_t aligned_load = bus->read(aligned_addr);
+    uint32_t aligned_load = read(aligned_addr);
 
     uint32_t value = 0;
     uint32_t LRValue = registers[instr.rt()];
@@ -315,7 +347,7 @@ void CPU::op_lh()
         uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
         if ((addr & 0x1) == 0) {
-            uint32_t value = (uint32_t)(short)bus->read<uint16_t>(addr);
+            uint32_t value = (uint32_t)(short)read<uint16_t>(addr);
             delayedLoad(instr.rt(), value);
         }
         else {
@@ -337,7 +369,7 @@ void CPU::op_lhu()
         uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
         if ((addr & 0x1) == 0) {
-            uint32_t value = bus->read<uint16_t>(addr);
+            uint32_t value = read<uint16_t>(addr);
             //Console.WriteLine("LHU: " + addr.ToString("x8") + " value: " + value.ToString("x8"));
             delayedLoad(instr.rt(), value);
         }
@@ -470,7 +502,7 @@ void CPU::op_jalr()
 void CPU::op_lbu()
 {
     if (!cop0.sr.IsC) {
-        uint32_t value = bus->read<uint8_t>(registers[instr.rs()] + instr.imm_s());
+        uint32_t value = read<uint8_t>(registers[instr.rs()] + instr.imm_s());
         delayedLoad(instr.rt(), value);
     }
 }
@@ -535,7 +567,7 @@ void CPU::op_beq()
 void CPU::op_lb()
 { //todo redo this as it unnecesary read
     if (!cop0.sr.IsC) {
-        uint32_t value = (uint32_t)(uint8_t)bus->read<uint8_t>(registers[instr.rs()] + instr.imm_s());
+        uint32_t value = (uint32_t)(uint8_t)read<uint8_t>(registers[instr.rs()] + instr.imm_s());
         delayedLoad(instr.rt(), value);
     } //else Console.WriteLine("Ignoring Write");
 }
@@ -550,7 +582,7 @@ void CPU::op_jr()
 void CPU::op_sb()
 {
     if (!cop0.sr.IsC)
-        bus->write<uint8_t>(registers[instr.rs()] + instr.imm_s(), (int8_t)registers[instr.rt()]);
+        write<uint8_t>(registers[instr.rs()] + instr.imm_s(), (int8_t)registers[instr.rt()]);
 }
 
 void CPU::op_andi()
@@ -570,7 +602,7 @@ void CPU::op_sh()
         uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
         if ((addr & 0x1) == 0) {
-            bus->write<uint16_t>(addr, (uint16_t)registers[instr.rt()]);
+            write<uint16_t>(addr, (uint16_t)registers[instr.rt()]);
         }
         else {
             cop0.BadA = addr;
@@ -597,7 +629,7 @@ void CPU::op_lw()
         uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
         if ((addr & 0x3) == 0) {
-            uint32_t value = bus->read(addr);
+            uint32_t value = read(addr);
             delayedLoad(instr.rt(), value);
         }
         else {
@@ -685,7 +717,7 @@ void CPU::op_sw()
         uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
         if ((addr & 0x3) == 0) {
-            bus->write(addr, registers[instr.rt()]);
+            write(addr, registers[instr.rt()]);
         }
         else {
             cop0.BadA = addr;
