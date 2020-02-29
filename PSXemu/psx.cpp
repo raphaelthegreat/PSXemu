@@ -20,13 +20,14 @@ void PSX::tick()
 	for (int j = 0; j < 10; j++) {
 		for (int i = 0; i < 33868800 / 60 / 10; i++) {
 			cpu->tick();
+			cpu->handle_interrupts();
 			bus->timers[2].tick();
 		}
 
 		bus->tick();
 	}
 
-	bus->interruptController.set(Interrupt::GPU_IRQ);
+	bus->interruptController.set(Interrupt::VBLANK);
 }
 
 bool PSX::render()

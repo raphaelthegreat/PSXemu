@@ -35,7 +35,7 @@ void CDRom::write(uint32_t offset, uint32_t data)
 		break;
 	}
 
-	//printf("CDROM write at offset 0x%x with data 0x%x\n", offset, data);
+	printf("CDROM write at offset 0x%x with data 0x%x\n", offset, data);
 }
 
 uint32_t CDRom::read(uint32_t offset)
@@ -104,7 +104,7 @@ void CDRom::tick()
 			handler();
 		}
 		else {
-			//printf("Unhandled CDRom command: 0x%x\n", status.command);
+			printf("Unhandled CDRom command: 0x%x\n", status.command);
 			exit(0);
 		}
 	}
@@ -205,7 +205,7 @@ void CDRom::seekp_cmd()
 void CDRom::test_cmd()
 {
 	uint8_t arg = get_arg();
-	//printf("CDRom test command: 0x%x\n", arg);
+	printf("CDRom test command: 0x%x\n", arg);
 	
 	switch (arg) {
 	case 0x20:
@@ -222,7 +222,7 @@ void CDRom::test_cmd()
 
 void CDRom::get_id_cmd()
 {
-	//printf("CDRom get id command!\n");
+	printf("CDRom get id command!\n");
 	response_fifo.push(0x02);
 
 	status.irq_request = 3;
@@ -260,7 +260,7 @@ void CDRom::getq_cmd()
 
 void CDRom::read_toc_cmd()
 {
-	//printf("CDRom read toc command!\n");
+	printf("CDRom read toc command!\n");
 }
 
 void CDRom::video_cd_cmd()

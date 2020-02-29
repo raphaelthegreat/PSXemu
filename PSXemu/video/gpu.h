@@ -36,8 +36,11 @@ enum GP0Command {
 	Fill_Rect = 0x2,
 	Mono_Quad = 0x28,
 	Shaded_Quad_Blend = 0x2c,
+	Shaded_Quad_Raw_Texture = 0x2d,
 	Shaded_Triangle = 0x30,
 	Shaded_Quad = 0x38,
+	Textured_Rect_Opaque = 0x65,
+	Mono_Quad_Dot = 0x68,
 	Image_Load = 0xa0,
 	Image_Store = 0xc0,
 	Texture_Window_Setting = 0xe2,
@@ -96,10 +99,10 @@ public:
 
 	/* Copy data from ram to vram. */
 	void vram_load(uint16_t data);
-	/* Copy data from vram to ram. */
-	void vram_store(uint16_t data);
 	/* Copy data from vram to vram. */
 	void vram_copy(uint16_t data);
+
+	uint16_t get_vram_data();
 
 	/* Unpack color channels from GPU data. */
 	glm::ivec3 unpack_color(uint32_t color);
@@ -118,9 +121,11 @@ public:
 	void gp0_mono_quad();
 	void gp0_draw_mode();
 	void gp0_fill_rect();
+	void gp0_mono_dot();
 	void gp0_draw_area_top_left();
 	void gp0_draw_area_bottom_right();
 	void gp0_texture_window_setting();
+	void gp0_textured_rect_opaque();
 	void gp0_drawing_offset();
 	void gp0_mask_bit_setting();
 	void gp0_clear_cache();
@@ -180,7 +185,7 @@ public:
 	Renderer* gl_renderer;
 
 	/* Hold info about current move operation. */
-	DataMover data_mover;
+	DataMover data_mover, cpu_mover;
 
 	/* GPU VRAM buffer. */
 	VRAM vram;

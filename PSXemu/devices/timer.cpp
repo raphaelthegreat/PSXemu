@@ -32,8 +32,6 @@ void Timer::write(uint32_t offset, uint32_t data)
 		//one_shot_irq = false;
 		//control.irq_request = true;
 
-		printf("Update timer sync mode!\n");
-
 		/* Update sync modes. */
 		/*if (control.sync_enable) {
 			SyncMode sync = get_sync_mode();
@@ -106,7 +104,7 @@ void Timer::tick()
 			if (control.reset == ResetWhen::Target) {
 				counter = 0;
 			}
-
+			
 			if (control.irq_when_target) {
 				control.irq_request = false;
 				bus->interruptController.set(irq_type());

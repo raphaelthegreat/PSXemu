@@ -22,7 +22,7 @@ void CPU::op_cop0()
 		op_rfe(); 
 		break;
 	default: 
-		exception(ExceptionType::IllegalInstr, instr.id()); 
+		exception(ExceptionType::IllegalInstr); 
 		break;
 	}
 }

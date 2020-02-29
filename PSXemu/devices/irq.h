@@ -1,5 +1,7 @@
 #pragma once
 #include <cstdint>
+#include <cstdio>
+#include <cpu/util.h>
 
 enum class ExceptionType{
     Interrupt = 0x0,
@@ -27,23 +29,17 @@ enum class Interrupt {
     PIO = 10
 };
 
-enum class Width {
-    WORD,
-    BYTE,
-    HALF
-};
-
 class InterruptController {
 public:
-    uint32_t ISTAT;
-    uint32_t IMASK;
+    uint32_t ISTAT = 0;
+    uint32_t IMASK = 0;
 
     void set(Interrupt interrupt) {
-        ISTAT |= (1 << (uint32_t)interrupt);
+        ISTAT = set_bit(ISTAT, (int)interrupt, true);
     }
 
     void writeISTAT(uint32_t value) {
-        ISTAT &= value & 0x7FF;
+        ISTAT &= value;
     }
 
     void writeIMASK(uint32_t value) {

@@ -11,7 +11,7 @@ Renderer::Renderer(int _width, int _height, std::string title)
     glfwSwapInterval(0);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        //printf("Could not load OpenGL!\n");
+        printf("Could not load OpenGL!\n");
         exit(0);
     }
 

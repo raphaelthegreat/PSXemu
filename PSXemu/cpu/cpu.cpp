@@ -1,6 +1,8 @@
 #include "cpu.h"
 
-#pragma optimize("", on)
+#pragma optimize("", off)
+
+static int interval = 0;
 
 static inline uint32_t overflow_check(uint32_t x, uint32_t y, uint32_t z) {
     return (~(x ^ y) & (x ^ z) & 0x80000000);
@@ -25,14 +27,9 @@ void CPU::tick()
     /* Fetch next instruction. */
     fetch();
 
-    if (handle_interrupts()) {
-        exception(ExceptionType::Interrupt);
-    }
-    else {
-        /* Execute it. */
-        auto& handler = lookup[instr.opcode()];
-        handler();
-    }
+    /* Execute it. */
+    auto& handler = lookup[instr.opcode()];
+    handler();
 
     /* Apply pending load delays. */
     handle_load_delay();
@@ -60,9 +57,9 @@ bool CPU::handle_interrupts()
 {
     uint32_t load = read(current_pc);
     uint32_t instr = load >> 26;
-    
+
     /* If it is a GTE instruction do not execute interrupt! */
-    if (instr == 0x12) {       
+    if (instr == 0x12) {
         return false;
     }
 
@@ -76,8 +73,15 @@ bool CPU::handle_interrupts()
 
     uint32_t irq_mask = cop0.sr.Sw | (cop0.sr.Intr >> 2);
     uint32_t irq_pending = cop0.cause.Sw | (cop0.cause.IP >> 2);
+    
+    uint32_t IM = (cop0.sr.raw >> 8) & 0xFF;
+    uint32_t IP = (cop0.cause.raw >> 8) & 0xFF;
+    
     /* If pending and enabled, handle the interrupt. */
-    return (irq_enabled && (irq_mask & irq_pending));
+    if (irq_enabled && (IM & IP) > 0) {
+        printf("Interrupt!\n");
+        exception(ExceptionType::Interrupt);
+    }
 }
 
 void CPU::fetch()
@@ -151,7 +155,6 @@ void CPU::exception(ExceptionType code, uint32_t cop)
     if (code == ExceptionType::Interrupt) {
         cop0.epc = pc;
         
-        /* Hack: related to the delay of the ex interrupt*/
         is_delay_slot = is_branch;
         in_delay_slot_took_branch = took_branch;
     }
@@ -169,8 +172,7 @@ void CPU::exception(ExceptionType code, uint32_t cop)
             cop0.cause.BT = true;
         }
     }
-
-    /* Select exception address. */
+    
     pc = exception_addr[cop0.sr.BEV];
     next_pc = pc + 4;
 }
@@ -387,10 +389,9 @@ void CPU::op_lhu()
 
 void CPU::op_rfe()
 {
-    uint32_t sr = cop0.regs[12];
-    sr = (sr & ~0xf) | ((sr >> 2) & 0xf);
-
-    cop0.regs[12] = sr;
+    uint32_t mode = cop0.sr.raw & 0x3F;
+    cop0.sr.raw &= ~(uint32_t)0xF;
+    cop0.sr.raw |= mode >> 2;
 }
 
 void CPU::op_mthi()
@@ -547,12 +548,14 @@ void CPU::op_mfc0()
 {
     uint32_t mfc = instr.rd();
     
+    
     if (mfc == 3 || mfc >= 5 && mfc <= 9 || mfc >= 11 && mfc <= 15) {
         delayedLoad(instr.rt(), cop0.regs[mfc]);
     }
     else {
         exception(ExceptionType::IllegalInstr, instr.id());
     }
+    
 }
 
 void CPU::op_beq()
@@ -664,6 +667,7 @@ void CPU::op_mtc0()
     uint32_t value = registers[instr.rt()];
     uint32_t reg = instr.rd();
 
+    
     //MTC0 can trigger soft interrupts
     bool prev_IEC = cop0.sr.IEc;
 

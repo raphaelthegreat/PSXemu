@@ -127,7 +127,7 @@ inline void CPU::write(uint32_t addr, T data)
 
         ///* Check if caching is enabled. */
         //if (!cc.is1) {
-        //    //printf("Unsupported write while cache is enabled!\n");
+        //    printf("Unsupported write while cache is enabled!\n");
         //    exit(0);
         //}
 
@@ -141,6 +141,7 @@ inline void CPU::write(uint32_t addr, T data)
         //else {
         //    line.instrs[address.index].value = data;
         //}
+        return;
     }
     else {
         bus->write<T>(addr, data);

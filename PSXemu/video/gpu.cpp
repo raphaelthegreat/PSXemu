@@ -81,24 +81,12 @@ uint32_t GPU::get_status()
 
 uint32_t GPU::get_read()
 {
-	//printf("GPURead!\n");
-	if (data_mover.active) {
-		auto data = vram.read(data_mover.start_x + data_mover.x,
-			data_mover.start_y + data_mover.y);
+	printf("GPURead!\n");
+	if (cpu_mover.active) {
+		auto data1 = get_vram_data();
+		auto data2 = get_vram_data();
 
-		data_mover.x++;
-
-		if (data_mover.x == data_mover.width) {
-			data_mover.x = 0;
-			data_mover.y++;
-
-			if (data_mover.y == data_mover.height) {
-				data_mover.y = 0;
-				data_mover.active = false;
-			}
-		}
-
-		return data;
+		return (data2 << 16) | data1;
 	}
 
 	return 0;
@@ -131,14 +119,14 @@ bool GPU::tick(uint32_t cycles)
 
 	if (scanline < 242) {
 		if (status.vres == VerticalRes::V480 && status.vertical_interlace) {
-			status.odd_lines = (frames % 2) != 0;
+			//status.odd_lines = (frames % 2) != 0;
 		}
 		else {
-			status.odd_lines = (scanline % 2) != 0;
+			//status.odd_lines = (scanline % 2) != 0;
 		}
 	}
 	else {
-		status.odd_lines = false;
+		//status.odd_lines = false;
 	}
 	
 	if (scanline == 262) {
@@ -169,7 +157,7 @@ void GPU::vram_load(uint16_t data)
 			data_mover.y++;
 
 			/* Transfer complete. */
-			if (data_mover.y == data_mover.height && remaining_attribs == 0) {
+			if (data_mover.y == data_mover.height) {
 				data_mover.y = 0;
 				data_mover.active = false;
 				gpu_mode = Command;
@@ -178,12 +166,33 @@ void GPU::vram_load(uint16_t data)
 	}
 }
 
-void GPU::vram_store(uint16_t data)
+void GPU::vram_copy(uint16_t data)
 {
 }
 
-void GPU::vram_copy(uint16_t data)
+uint16_t GPU::get_vram_data()
 {
+	if (!cpu_mover.active) {
+		return 0;
+	}
+
+	auto data = vram.read(cpu_mover.start_x + cpu_mover.x,
+		cpu_mover.start_y + cpu_mover.y);
+
+	cpu_mover.x++;
+
+	if (cpu_mover.x == cpu_mover.width) {
+		cpu_mover.x = 0;
+		cpu_mover.y++;
+
+		if (cpu_mover.y == cpu_mover.height) {
+			cpu_mover.y = 0;
+			cpu_mover.active = false;
+			gpu_mode = Command;
+		}
+	}
+
+	return data;
 }
 
 glm::ivec3 GPU::unpack_color(uint32_t color)
@@ -241,6 +250,15 @@ void GPU::gp0_command(uint32_t data)
 		case Shaded_Quad_Blend:
 			handler = std::make_pair(9, BIND(gp0_shaded_quad_blend));
 			break;
+		case Shaded_Quad_Raw_Texture:
+			handler = std::make_pair(9, BIND(gp0_shaded_quad_blend));
+			break;
+		case Textured_Rect_Opaque:
+			handler = std::make_pair(4, BIND(gp0_textured_rect_opaque));
+			break;
+		case Mono_Quad_Dot:
+			handler = std::make_pair(2, BIND(gp0_mono_dot));
+			break;
 		case Shaded_Triangle:
 			handler = std::make_pair(6, BIND(gp0_shaded_trig));
 			break;
@@ -275,7 +293,7 @@ void GPU::gp0_command(uint32_t data)
 			handler = std::make_pair(1, BIND(gp0_mask_bit_setting));
 			break;
 		default:
-			//printf("Unhandled GP0 command: 0x%x\n", (uint32_t)command);
+			printf("Unhandled GP0 command: 0x%x\n", (uint32_t)command);
 			exit(0);
 		}
 
@@ -311,8 +329,6 @@ void GPU::gp0_command(uint32_t data)
 			vram_load(pixel1);
 			vram_load(pixel2);
 		}
-		else if (gpu_mode == VRAMStore)
-			vram_store(data);
 		else if (gpu_mode == VRAMCopy)
 			vram_copy(data);
 
@@ -346,25 +362,8 @@ void GPU::gp1_command(uint32_t data)
 		return gp1_vertical_display_range(data);
 	case Display_Mode:
 		return gp1_display_mode(data);
-	case 0x10:
-	case 0x11:
-	case 0x12:
-	case 0x13:
-	case 0x14:
-	case 0x15:
-	case 0x16:
-	case 0x17:
-	case 0x18:
-	case 0x19:
-	case 0x1A:
-	case 0x1B:
-	case 0x1C:
-	case 0x1D:
-	case 0x1E:
-	case 0x1F:
-		gp1_gpu_info(data);
 	default:
-		//printf("Unhandled GP1 command: 0x%x\n", (uint32_t)command);
+		printf("Unhandled GP1 command: 0x%x\n", (uint32_t)command);
 		exit(0);
 	}
 }
@@ -372,13 +371,13 @@ void GPU::gp1_command(uint32_t data)
 /* execute a NOP command. */
 void GPU::gp0_nop()
 {
-	//printf("GPU Nop\n");
+	printf("GPU Nop\n");
 	return;
 }
 
 void GPU::gp0_mono_quad()
 {
-	//printf("Draw Mono Quad\n");
+	printf("Draw Mono Quad\n");
 
 	auto color = command_fifo[0];
 	auto point1 = command_fifo[1];
@@ -397,7 +396,7 @@ void GPU::gp0_mono_quad()
 
 void GPU::gp0_draw_mode()
 {
-	//printf("GPU set draw mode\n");
+	printf("GPU set draw mode\n");
 	uint32_t data = command_fifo[0];
 
 	status.page_base_x = bit_range(data, 0, 4);
@@ -414,15 +413,15 @@ void GPU::gp0_draw_mode()
 
 void GPU::gp0_fill_rect()
 {
-	//printf("GPU Fill rect!\n");
+	printf("GPU Fill rect!\n");
 
 	auto color = unpack_color(command_fifo[0]);
 	auto point1 = unpack_point(command_fifo[1]);
 	auto point2 = unpack_point(command_fifo[2]);
 	
-	//printf("Color: %d %d %d\n", color.x, color.y, color.z);
-	//printf("Point1: %d %d\n", point1.x, point1.y);
-	//printf("Point2: %d %d\n", point2.x, point2.y);
+	printf("Color: %d %d %d\n", color.x, color.y, color.z);
+	printf("Point1: %d %d\n", point1.x, point1.y);
+	printf("Point2: %d %d\n", point2.x, point2.y);
 
 	point1.x = (point1.x + 0x0) & ~0xf;
 	point2.x = (point2.x + 0xf) & ~0xf;
@@ -438,9 +437,17 @@ void GPU::gp0_fill_rect()
 	}
 }
 
+void GPU::gp0_mono_dot()
+{
+	auto color = unpack_color(command_fifo[0]);
+	auto point = unpack_point(command_fifo[1]);
+
+	raster.draw_point(point.x, point.y, color.x, color.y, color.z);
+}
+
 void GPU::gp0_draw_area_top_left()
 {
-	//printf("GPU draw area top left\n");
+	printf("GPU draw area top left\n");
 	uint32_t data = command_fifo[0];
 
 	drawing_area_top = (uint16_t)bit_range(data, 10, 20);
@@ -449,7 +456,7 @@ void GPU::gp0_draw_area_top_left()
 
 void GPU::gp0_draw_area_bottom_right()
 {
-	//printf("GPU draw area bottom right\n");
+	printf("GPU draw area bottom right\n");
 	uint32_t data = command_fifo[0];
 
 	drawing_area_bottom = (uint16_t)bit_range(data, 10, 20);
@@ -458,7 +465,7 @@ void GPU::gp0_draw_area_bottom_right()
 
 void GPU::gp0_texture_window_setting()
 {
-	//printf("GPU texture window setting\n");
+	printf("GPU texture window setting\n");
 	uint32_t data = command_fifo[0];
 
 	texture_window_x_mask = bit_range(data, 0, 5);
@@ -468,9 +475,48 @@ void GPU::gp0_texture_window_setting()
 	texture_window_y_offset = bit_range(data, 15, 20);
 }
 
+void GPU::gp0_textured_rect_opaque()
+{
+	auto color = unpack_color(command_fifo[0]);
+	auto point1 = unpack_point(command_fifo[1]);
+	auto coord = command_fifo[2];
+	auto point2 = unpack_point(command_fifo[3]);
+
+	assert((status.raw & 0x180) == 0);
+
+	auto base_u = ((status.raw >> 0) & 0xf) * 64;
+	auto base_v = ((status.raw >> 4) & 0x1) * 256;
+
+	auto clut_x = ((coord >> 16) & 0x03f) * 16;
+	auto clut_y = ((coord >> 22) & 0x1ff);
+
+	for (int y = 0; y < point2.y; y++) {
+		for (int x = 0; x < point2.x; x++) {
+			auto texel = vram.read(base_u + (x / 4),
+				base_v + y);
+
+			int index = 0;
+
+			switch (x & 3) {
+			case 0: index = (texel >> 0) & 0xf; break;
+			case 1: index = (texel >> 4) & 0xf; break;
+			case 2: index = (texel >> 8) & 0xf; break;
+			case 3: index = (texel >> 12) & 0xf; break;
+			}
+
+			auto color = vram.read(clut_x + index,
+				clut_y);
+
+			vram.write(point1.x + x,
+				point1.y + y,
+				color);
+		}
+	}
+}
+
 void GPU::gp0_drawing_offset()
 {
-	//printf("GPU drawing offset\n");
+	printf("GPU drawing offset\n");
 	uint32_t data = command_fifo[0];
 	
 	uint16_t x = (uint16_t)(data & 0x7ff);
@@ -484,7 +530,7 @@ void GPU::gp0_drawing_offset()
 
 void GPU::gp0_mask_bit_setting()
 {
-	//printf("GPU mask bit setting\n");
+	printf("GPU mask bit setting\n");
 	uint32_t data = command_fifo[0];
 
 	status.force_set_mask_bit = get_bit(data, 0);
@@ -493,7 +539,7 @@ void GPU::gp0_mask_bit_setting()
 
 void GPU::gp0_clear_cache()
 {
-	//printf("GPU clear cache\n");
+	printf("GPU clear cache\n");
 }
 
 void GPU::gp0_image_load()
@@ -514,16 +560,21 @@ void GPU::gp0_image_load()
 
 void GPU::gp0_image_store()
 {
-	uint32_t res = command_fifo[2];
-	uint32_t width = bit_range(res, 0, 16);
-	uint32_t height = bit_range(res, 16, 32);
+	cpu_mover.start_x = command_fifo[1] & 0xffff;
+	cpu_mover.start_y = command_fifo[1] >> 16;
+	cpu_mover.width = command_fifo[2] & 0xffff;
+	cpu_mover.height = command_fifo[2] >> 16;
 
-	//printf("Unhandled image store: %d %d\n", width, height);
+	cpu_mover.x = 0;
+	cpu_mover.y = 0;
+	cpu_mover.active = true;
+
+	gpu_mode = VRAMStore;
 }
 
 void GPU::gp0_shaded_quad()
 {
-	//printf("Draw Shaded Quad!\n");
+	printf("Draw Shaded Quad!\n");
 	
 	auto color1 = command_fifo[0];
 	auto point1 = command_fifo[1];
@@ -555,7 +606,7 @@ void GPU::gp0_shaded_quad()
   (9th) Texcoord4         (0000YyXxh) (if any)*/
 void GPU::gp0_shaded_quad_blend()
 {
-	//printf("Draw Shaded Quad with Blending!\n");
+	printf("Draw Shaded Quad with Blending!\n");
 	Quad quad;
 
 	auto color = command_fifo[0];
@@ -593,7 +644,7 @@ void GPU::gp0_shaded_quad_blend()
 
 void GPU::gp0_shaded_trig()
 {
-	//printf("Draw Shaded Triangle!\n");
+	printf("Draw Shaded Triangle!\n");
 	
 	auto color1 = command_fifo[0];
 	auto point1 = command_fifo[1];
@@ -613,7 +664,7 @@ void GPU::gp0_shaded_trig()
 
 void GPU::gp1_reset(uint32_t data)
 {
-	//printf("GPU GP1 reset\n");
+	printf("GPU GP1 reset\n");
 	status.interrupt_req = false;
 
 	status.raw = 0;
@@ -640,7 +691,7 @@ void GPU::gp1_reset(uint32_t data)
 
 void GPU::gp1_display_mode(uint32_t data)
 {
-	//printf("GPU GP1 display mode\n");
+	printf("GPU GP1 display mode\n");
 	uint8_t hr1 = bit_range(data, 0, 2);
 	uint8_t hr2 = get_bit(data, 6);
 
@@ -651,14 +702,14 @@ void GPU::gp1_display_mode(uint32_t data)
 	status.vertical_interlace = get_bit(data, 5);
 
 	if (get_bit(data, 7) != 0) {
-		//printf("Unsupported display mode: 0x%x\n", data);
+		printf("Unsupported display mode: 0x%x\n", data);
 		exit(0);
 	}
 }
 
 void GPU::gp1_dma_dir(uint32_t data)
 {
-	//printf("GPU GP1 dma dir\n");
+	printf("GPU GP1 dma dir\n");
 	
 	switch (data & 3) {
 	case 0: 
@@ -678,14 +729,14 @@ void GPU::gp1_dma_dir(uint32_t data)
 
 void GPU::gp1_horizontal_display_range(uint32_t data)
 {
-	//printf("GPU GP1 horizontal display range\n");
+	printf("GPU GP1 horizontal display range\n");
 	display_horiz_start = bit_range(data, 0, 12);
 	display_horiz_end = bit_range(data, 12, 24);
 }
 
 void GPU::gp1_vertical_display_range(uint32_t data)
 {
-	//printf("GPU GP1 vertical display range\n");
+	printf("GPU GP1 vertical display range\n");
 	display_line_start = (uint16_t)(data & 0x3ff);
 	display_line_end = (uint16_t)((data >> 10) & 0x3ff);
 }
@@ -693,26 +744,26 @@ void GPU::gp1_vertical_display_range(uint32_t data)
 // TODO change values
 void GPU::gp1_start_of_display_area(uint32_t data)
 {
-	//printf("GPU GP1 start of display area\n");
+	printf("GPU GP1 start of display area\n");
 	display_vram_x_start = bit_range(data, 0, 10);
 	display_vram_y_start = bit_range(data, 10, 19);
 }
 
 void GPU::gp1_display_enable(uint32_t data)
 {
-	//printf("GPU GP1 displat enable\n");
+	printf("GPU GP1 displat enable\n");
 	status.display_disable = get_bit(data, 0);
 }
 
 void GPU::gp1_acknowledge_irq(uint32_t data)
 {
-	//printf("GPU GP1 acknowledge interrupt\n");
+	printf("GPU GP1 acknowledge interrupt\n");
 	status.interrupt_req = false;
 }
 
 void GPU::gp1_reset_cmd_buffer(uint32_t data)
 {
-	//printf("GPU GP1 reset command buffer\n");
+	printf("GPU GP1 reset command buffer\n");
 	command_fifo.clear();
 	remaining_attribs = 0;
 	gpu_mode = Command;
@@ -720,7 +771,7 @@ void GPU::gp1_reset_cmd_buffer(uint32_t data)
 
 void GPU::gp1_gpu_info(uint32_t data)
 {
-	//printf("GPU GP1 info!\n");
+	printf("GPU GP1 info!\n");
 	uint32_t info = data & 0xF;
 	
 	switch (info) {
@@ -743,7 +794,7 @@ void GPU::gp1_gpu_info(uint32_t data)
 		read = 0;
 		break;
 	default: 
-		//printf("GPU GP1 unhandled get info: 0x%x\n", data); 
+		printf("GPU GP1 unhandled get info: 0x%x\n", data); 
 		break;
 	}
 }
