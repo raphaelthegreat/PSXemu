@@ -8,6 +8,7 @@ public:
 	~PSX() = default;
 
 	void tick();
+	bool render();
 
 private:
 	unique_ptr<CPU> cpu;

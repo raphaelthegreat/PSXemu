@@ -1,4 +1,5 @@
 #include "psx.h"
+#include "video/renderer.h"
 
 PSX::PSX(Renderer* renderer)
 {
@@ -10,13 +11,27 @@ PSX::PSX(Renderer* renderer)
 	/* Attach devices to the bus. */
 	bus->cpu = cpu.get();
 	bus->gpu = gpu.get();
+
+	gl_renderer->set_vram(&gpu->vram);
 }
 
 void PSX::tick()
 {
-	/* execute a frame's worth of cpu cycles. */
-	cpu->tick();
+	for (int j = 0; j < 10; j++) {
+		for (int i = 0; i < 33868800 / 60 / 10; i++) {
+			cpu->tick();
+			bus->timers[2].tick();
+		}
 
-	/* Tick the GPU. */
-	gpu->tick(cycles_per_frame);
+		bus->tick();
+	}
+
+	bus->interruptController.set(Interrupt::GPU_IRQ);
+}
+
+bool PSX::render()
+{
+	gl_renderer->update();
+	
+	return gl_renderer->is_open();
 }

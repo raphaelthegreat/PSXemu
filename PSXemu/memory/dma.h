@@ -90,6 +90,10 @@ class DMAController {
 public:
 	DMAController(Bus* bus);
 
+	void tick();
+	bool is_channel_enabled(DMAChannels channel);
+	void transfer_finished(DMAChannels channel);
+
 	void start(DMAChannels channel);
 	void block_copy(DMAChannels channel);
 	void list_copy(DMAChannels channel);
@@ -101,6 +105,8 @@ public:
 	DMAControl control;
 	DMAIRQReg irq;
 	DMAChannel channels[7];
+
+	bool irq_pending = false;
 
 	Bus* bus;
 };

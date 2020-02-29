@@ -6,6 +6,8 @@
 #include <memory/bios.h>
 #include <memory/ram.h>
 #include <memory/dma.h>
+#include <devices/cdrom.h>
+#include <devices/timer.h>
 #include <video/gpu.h>
 #include <cpu/cache.h>
 #include <devices/irq.h>
@@ -37,6 +39,8 @@ public:
 
 	uint32_t physical_addr(uint32_t addr);
 
+	void tick();
+
 public:
 	unique_ptr<Bios> bios;
 	unique_ptr<Ram> ram;
@@ -44,10 +48,15 @@ public:
 	DMAController dma;
 	InterruptController interruptController;
 	CacheControl cache_ctrl;
+	CDRom cdrom;
 
 	Renderer* gl_renderer;
 	CPU* cpu;
 	GPU* gpu;
+
+	int counter = 0;
+
+	Timer timers[3];
 
 	const uint32_t region_mask[8] = {
 		0xffffffff, 0xffffffff,

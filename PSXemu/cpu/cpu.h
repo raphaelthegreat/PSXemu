@@ -28,7 +28,7 @@ public:
     void fetch();
     void branch();
     void register_opcodes();
-    void handle_interrupts();
+    bool handle_interrupts();
     void handle_load_delay();
     
     void exception(ExceptionType cause, uint32_t cop = 0);
@@ -120,27 +120,27 @@ template<typename T>
 inline void CPU::write(uint32_t addr, T data)
 {
     if (cop0.sr.IsC) {
-        CacheControl& cc = bus->cache_ctrl;
+        //CacheControl& cc = bus->cache_ctrl;
 
-        Address address;
-        address.raw = addr;
+        //Address address;
+        //address.raw = addr;
 
-        /* Check if caching is enabled. */
-        if (!cc.is1) {
-            printf("Unsupported write while cache is enabled!\n");
-            exit(0);
-        }
+        ///* Check if caching is enabled. */
+        //if (!cc.is1) {
+        //    //printf("Unsupported write while cache is enabled!\n");
+        //    exit(0);
+        //}
 
-        CacheLine& line = instr_cache[address.cache_line];
+        //CacheLine& line = instr_cache[address.cache_line];
 
-        /* Invalid cache line if TAG test is enabled. */
-        if (cc.tag) {
-            /* Invalidate by pushing index out of range. */
-            line.tag.index = 4;
-        } /* Write to cache. */
-        else {
-            line.instrs[address.index].value = data;
-        }
+        ///* Invalid cache line if TAG test is enabled. */
+        //if (cc.tag) {
+        //    /* Invalidate by pushing index out of range. */
+        //    line.tag.index = 4;
+        //} /* Write to cache. */
+        //else {
+        //    line.instrs[address.index].value = data;
+        //}
     }
     else {
         bus->write<T>(addr, data);

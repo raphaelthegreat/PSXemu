@@ -1,10 +1,20 @@
 #include "gpu.h"
 #include <cpu/util.h>
 #include <cpu/cpu.h>
+#include <algorithm>
+#include <video/math_util.h>
 #include <video/renderer.h>
 
+void DataMover::advance()
+{
+	x++;
+	if (x == width) {
+		x = 0; y++;
+	}
+}
+
 /* GPU class implementation */
-GPU::GPU(Renderer* renderer)
+GPU::GPU(Renderer* renderer) : raster(this)
 {
 	gl_renderer = renderer;
 	
@@ -31,15 +41,12 @@ GPU::GPU(Renderer* renderer)
 	texture_y_flip = false;
 	in_vblank = false;
 
-	dot_clock = 0;
-	frame_count = 0;
-
-	current_texture = new Texture8(256, 256, NULL, Filtering::Nearest);
+	frames = 0;
 }
 
 GPU::~GPU()
 {
-	delete current_texture;
+
 }
 
 uint32_t GPU::get_status()
@@ -74,7 +81,26 @@ uint32_t GPU::get_status()
 
 uint32_t GPU::get_read()
 {
-	printf("GPURead!\n");
+	//printf("GPURead!\n");
+	if (data_mover.active) {
+		auto data = vram.read(data_mover.start_x + data_mover.x,
+			data_mover.start_y + data_mover.y);
+
+		data_mover.x++;
+
+		if (data_mover.x == data_mover.width) {
+			data_mover.x = 0;
+			data_mover.y++;
+
+			if (data_mover.y == data_mover.height) {
+				data_mover.y = 0;
+				data_mover.active = false;
+			}
+		}
+
+		return data;
+	}
+
 	return 0;
 }
 
@@ -94,54 +120,35 @@ uint16_t GPU::lines_per_frame()
 		return 314;
 }
 
-void GPU::tick(uint32_t cycles)
+bool GPU::tick(uint32_t cycles)
 {
-	uint32_t max_cycles = video_mode_timings();
-	uint32_t max_lines = lines_per_frame();
-	VerticalRes vres = (VerticalRes)status.vres;
+	gpu_clock += cycles;
 
-	/* Add the cycles to GPU pixel clock (this is in pixels). */
-	dot_clock += cycles;
+	int newLines = gpu_clock / 3413;
+	if (newLines == 0) return false;
+	gpu_clock %= 3413;
+	scanline += newLines;
 
-	/* Get the number of generated scanlines. */
-	uint32_t new_lines = dot_clock / max_cycles;
-
-	/* No new scanlines where generated. */
-	if (new_lines == 0) 
-		return;
-
-	dot_clock %= max_cycles;
-
-	/* Add the new scanlines. */
-	scanline += new_lines;
-
-	/* We are still drawing the frame (not in vblank). */
-	if (scanline < VBLANK_START) {
-		if (vres == VerticalRes::V480 && status.vertical_interlace)
-			status.odd_lines = (frame_count % 2) != 0;
-		else
+	if (scanline < 242) {
+		if (status.vres == VerticalRes::V480 && status.vertical_interlace) {
+			status.odd_lines = (frames % 2) != 0;
+		}
+		else {
 			status.odd_lines = (scanline % 2) != 0;
+		}
 	}
 	else {
 		status.odd_lines = false;
 	}
-
-	/* We have finished drawing and in vblank. */
-	if (scanline > max_lines) {
+	
+	if (scanline == 262) {
 		scanline = 0;
-		frame_count++;
-		in_vblank = true;
-
-		/* Draw finished scene. */
+		frames++;
+		
+		return true;
 	}
-
-	in_vblank = false;
-	return;
-}
-
-bool GPU::is_vblank()
-{
-	return in_vblank;
+	
+	return false;
 }
 
 void GPU::vram_load(uint16_t data)
@@ -162,7 +169,7 @@ void GPU::vram_load(uint16_t data)
 			data_mover.y++;
 
 			/* Transfer complete. */
-			if (data_mover.y == data_mover.height) {
+			if (data_mover.y == data_mover.height && remaining_attribs == 0) {
 				data_mover.y = 0;
 				data_mover.active = false;
 				gpu_mode = Command;
@@ -179,17 +186,36 @@ void GPU::vram_copy(uint16_t data)
 {
 }
 
-Color8 GPU::unpack(uint16_t color)
+glm::ivec3 GPU::unpack_color(uint32_t color)
 {
-	uint8_t red, green, blue, alpha;
-
 	/* Unpack bits. */
-	red = ((color & 0x1F) / 31.0) * 255.999;
-	green = (((color & 0x3E0) >> 5) / 31.0) * 255.999;
-	blue = (((color & 0x7C00) >> 10) / 31.0) * 255.999;
-	alpha = (color >> 15) * 255;
+	glm::ivec3 result;
+	result.r = (color >> 0) & 0xff;
+	result.g = (color >> 8) & 0xff;
+	result.b = (color >> 16) & 0xff;
 
-	return Color8(red, green, blue, alpha);
+	return result;
+}
+
+glm::ivec2 GPU::unpack_point(uint32_t point)
+{
+	glm::ivec2 point2;
+	point2.x = bit_range(point, 0, 11);
+	point2.y = bit_range(point, 16, 27);
+
+	return point2;
+}
+
+Pixel GPU::create_pixel(uint32_t point, uint32_t color, uint32_t coord)
+{
+	Pixel pixel;
+	pixel.point = unpack_point(point);
+	pixel.color = unpack_color(color);
+
+	pixel.u = (coord >> 0) & 0xff;
+	pixel.v = (coord >> 8) & 0xff;
+
+	return pixel;
 }
 
 void GPU::gp0_command(uint32_t data)
@@ -205,6 +231,9 @@ void GPU::gp0_command(uint32_t data)
 		switch (command) {
 		case Nop:
 			handler = std::make_pair(1, BIND(gp0_nop));
+			break;
+		case Fill_Rect:
+			handler = std::make_pair(3, BIND(gp0_fill_rect));
 			break;
 		case Shaded_Quad:
 			handler = std::make_pair(8, BIND(gp0_shaded_quad));
@@ -246,7 +275,7 @@ void GPU::gp0_command(uint32_t data)
 			handler = std::make_pair(1, BIND(gp0_mask_bit_setting));
 			break;
 		default:
-			printf("Unhandled GPU command: 0x%x\n", (uint32_t)command);
+			//printf("Unhandled GP0 command: 0x%x\n", (uint32_t)command);
 			exit(0);
 		}
 
@@ -317,8 +346,25 @@ void GPU::gp1_command(uint32_t data)
 		return gp1_vertical_display_range(data);
 	case Display_Mode:
 		return gp1_display_mode(data);
+	case 0x10:
+	case 0x11:
+	case 0x12:
+	case 0x13:
+	case 0x14:
+	case 0x15:
+	case 0x16:
+	case 0x17:
+	case 0x18:
+	case 0x19:
+	case 0x1A:
+	case 0x1B:
+	case 0x1C:
+	case 0x1D:
+	case 0x1E:
+	case 0x1F:
+		gp1_gpu_info(data);
 	default:
-		printf("Unhandled GP1 command: 0x%x\n", (uint32_t)command);
+		//printf("Unhandled GP1 command: 0x%x\n", (uint32_t)command);
 		exit(0);
 	}
 }
@@ -326,30 +372,32 @@ void GPU::gp1_command(uint32_t data)
 /* execute a NOP command. */
 void GPU::gp0_nop()
 {
-	printf("GPU Nop\n");
+	//printf("GPU Nop\n");
 	return;
 }
 
 void GPU::gp0_mono_quad()
 {
-	printf("Draw Mono Quad\n");
+	//printf("Draw Mono Quad\n");
 
-	Color8 color = Color8::from_gpu(command_fifo[0]);
-	Verts pos =
-	{
-		Pos2i::from_gpu(command_fifo[1]),
-		Pos2i::from_gpu(command_fifo[2]),
-		Pos2i::from_gpu(command_fifo[3]),
-		Pos2i::from_gpu(command_fifo[4]),
-	};
+	auto color = command_fifo[0];
+	auto point1 = command_fifo[1];
+	auto point2 = command_fifo[2];
+	auto point3 = command_fifo[3];
+	auto point4 = command_fifo[4];
 
-	Colors colors = { color, color, color, color };
-	gl_renderer->push_quad(pos, colors);
+	auto v0 = create_pixel(point1, color);
+	auto v1 = create_pixel(point2, color);
+	auto v2 = create_pixel(point3, color);
+	auto v3 = create_pixel(point4, color);
+
+	Quad quad = { v0, v1, v2, v3 };
+	raster.draw_polygon_shaded(quad);
 }
 
 void GPU::gp0_draw_mode()
 {
-	printf("GPU set draw mode\n");
+	//printf("GPU set draw mode\n");
 	uint32_t data = command_fifo[0];
 
 	status.page_base_x = bit_range(data, 0, 4);
@@ -364,9 +412,35 @@ void GPU::gp0_draw_mode()
 	texture_y_flip = get_bit(data, 13);
 }
 
+void GPU::gp0_fill_rect()
+{
+	//printf("GPU Fill rect!\n");
+
+	auto color = unpack_color(command_fifo[0]);
+	auto point1 = unpack_point(command_fifo[1]);
+	auto point2 = unpack_point(command_fifo[2]);
+	
+	//printf("Color: %d %d %d\n", color.x, color.y, color.z);
+	//printf("Point1: %d %d\n", point1.x, point1.y);
+	//printf("Point2: %d %d\n", point2.x, point2.y);
+
+	point1.x = (point1.x + 0x0) & ~0xf;
+	point2.x = (point2.x + 0xf) & ~0xf;
+
+	for (int y = 0; y < point2.y; y++) {
+		for (int x = 0; x < point2.x; x++) {
+			raster.draw_point(point1.x + x,
+				point1.y + y,
+				color.r,
+				color.g,
+				color.b);
+		}
+	}
+}
+
 void GPU::gp0_draw_area_top_left()
 {
-	printf("GPU draw area top left\n");
+	//printf("GPU draw area top left\n");
 	uint32_t data = command_fifo[0];
 
 	drawing_area_top = (uint16_t)bit_range(data, 10, 20);
@@ -375,7 +449,7 @@ void GPU::gp0_draw_area_top_left()
 
 void GPU::gp0_draw_area_bottom_right()
 {
-	printf("GPU draw area bottom right\n");
+	//printf("GPU draw area bottom right\n");
 	uint32_t data = command_fifo[0];
 
 	drawing_area_bottom = (uint16_t)bit_range(data, 10, 20);
@@ -384,7 +458,7 @@ void GPU::gp0_draw_area_bottom_right()
 
 void GPU::gp0_texture_window_setting()
 {
-	printf("GPU texture window setting\n");
+	//printf("GPU texture window setting\n");
 	uint32_t data = command_fifo[0];
 
 	texture_window_x_mask = bit_range(data, 0, 5);
@@ -396,7 +470,7 @@ void GPU::gp0_texture_window_setting()
 
 void GPU::gp0_drawing_offset()
 {
-	printf("GPU drawing offset\n");
+	//printf("GPU drawing offset\n");
 	uint32_t data = command_fifo[0];
 	
 	uint16_t x = (uint16_t)(data & 0x7ff);
@@ -405,13 +479,12 @@ void GPU::gp0_drawing_offset()
 	drawing_x_offset = ((int16_t)(x << 5)) >> 5;
 	drawing_y_offset = ((int16_t)(y << 5)) >> 5;
 	
-	//gl_renderer->draw_scene();
 	gl_renderer->set_draw_offset(drawing_x_offset, drawing_y_offset);
 }
 
 void GPU::gp0_mask_bit_setting()
 {
-	printf("GPU mask bit setting\n");
+	//printf("GPU mask bit setting\n");
 	uint32_t data = command_fifo[0];
 
 	status.force_set_mask_bit = get_bit(data, 0);
@@ -420,49 +493,21 @@ void GPU::gp0_mask_bit_setting()
 
 void GPU::gp0_clear_cache()
 {
-	printf("GPU clear cache\n");
+	//printf("GPU clear cache\n");
 }
 
 void GPU::gp0_image_load()
 {
-	uint32_t res = command_fifo[2];
-	uint32_t width = bit_range(res, 0, 16);
-	uint32_t height = bit_range(res, 16, 32);
+	data_mover.start_x = command_fifo[1] & 0xffff;
+	data_mover.start_y = command_fifo[1] >> 16;
+	data_mover.width = command_fifo[2] & 0xffff;
+	data_mover.height = command_fifo[2] >> 16;
 
-	/* Compute image surface. */
-	uint32_t imgsize = width * height;
-	/* Round to next even number. */
-	imgsize = (imgsize + 1) & ~1;
+	data_mover.x = 0;
+	data_mover.y = 0;
+	data_mover.active = true;
 
-	/* Set the remaining attributtes. */
-	/* This basically means that the next (pixel_count / 2) */
-	/* atrtibutes are pixels (pixels are batched and sent 2 at a time). */
-	remaining_attribs = imgsize / 2;
-
-	/* Unpack texture coords. */
-	uint32_t source_coord = command_fifo[1];
-	uint32_t coordx = bit_range(source_coord, 0, 16);
-	uint32_t coordy = bit_range(source_coord, 16, 32);
-
-	/* Is the image not 0 */
-	if (remaining_attribs > 0) {
-		/* Image x/y in vram and width/height. */
-		data_mover.start_x = coordx;
-		data_mover.start_y = coordy;
-		data_mover.width = width;
-		data_mover.height = height;
-		data_mover.pixel_count = remaining_attribs;
-		
-		data_mover.x = 0;
-		data_mover.y = 0;
-
-		/* Activate data mover. */
-		data_mover.active = true;
-	}
-	else {
-		printf("GPU image size 0!\n");
-		exit(0);
-	}
+	remaining_attribs = data_mover.width * data_mover.height / 2;
 
 	gpu_mode = VRAMLoad;
 }
@@ -472,31 +517,31 @@ void GPU::gp0_image_store()
 	uint32_t res = command_fifo[2];
 	uint32_t width = bit_range(res, 0, 16);
 	uint32_t height = bit_range(res, 16, 32);
-	
-	printf("Unhandled image store: %d %d\n", width, height);
+
+	//printf("Unhandled image store: %d %d\n", width, height);
 }
 
 void GPU::gp0_shaded_quad()
 {
-	printf("Draw Shaded Quad!\n");
+	//printf("Draw Shaded Quad!\n");
 	
-	Verts pos =
-	{
-		Pos2i::from_gpu(command_fifo[1]),
-		Pos2i::from_gpu(command_fifo[3]),
-		Pos2i::from_gpu(command_fifo[5]),
-		Pos2i::from_gpu(command_fifo[7]),
-	};
+	auto color1 = command_fifo[0];
+	auto point1 = command_fifo[1];
+	auto color2 = command_fifo[2];
+	auto point2 = command_fifo[3];
+	auto color3 = command_fifo[4];
+	auto point3 = command_fifo[5];
+	auto color4 = command_fifo[6];
+	auto point4 = command_fifo[7];
 
-	Colors colors =
-	{
-		Color8::from_gpu(command_fifo[0]),
-		Color8::from_gpu(command_fifo[2]),
-		Color8::from_gpu(command_fifo[4]),
-		Color8::from_gpu(command_fifo[6]),
-	};
+	auto v0 = create_pixel(point1, color1);
+	auto v1 = create_pixel(point2, color2);
+	auto v2 = create_pixel(point3, color3);
+	auto v3 = create_pixel(point4, color4);
 
-	gl_renderer->push_quad(pos, colors);
+	Quad quad = { v0, v1, v2, v3 };
+
+	raster.draw_polygon_shaded(quad);
 }
 
 /* 1st  Color+Command     (CcBbGgRrh) (color is ignored for raw-textures)
@@ -510,137 +555,65 @@ void GPU::gp0_shaded_quad()
   (9th) Texcoord4         (0000YyXxh) (if any)*/
 void GPU::gp0_shaded_quad_blend()
 {
-	printf("Draw Shaded Quad with Blending!\n");
+	//printf("Draw Shaded Quad with Blending!\n");
+	Quad quad;
 
-	uint32_t start_x, start_y, width, height;
+	auto color = command_fifo[0];
+	auto point1 = command_fifo[1];
+	auto coord1 = command_fifo[2];
+	auto point2 = command_fifo[3];
+	auto coord2 = command_fifo[4];
+	auto point3 = command_fifo[5];
+	auto coord3 = command_fifo[6];
+	auto point4 = command_fifo[7];
+	auto coord4 = command_fifo[8];
+
+	quad.point[0] = create_pixel(point1, color, coord1);
+	quad.point[1] = create_pixel(point2, color, coord2);
+	quad.point[2] = create_pixel(point3, color, coord3);
+	quad.point[3] = create_pixel(point4, color, coord4);
 	
-	/* Build vertex data array. */
-	std::vector<Pos2i> verts(4);
-	for (int i = 0; i < 4; i++) {
-		uint32_t vertex = command_fifo[2 * i + 1];
-		verts[i] = Pos2i::from_gpu(vertex);
-	}
-
-	/* Build texture coords array. */
-	std::vector<Pos2f> coords =
-	{
-		Pos2f(0.0f, 0.0f),
-		Pos2f(1.0f, 0.0f),
-		Pos2f(0.0f, 1.0f),
-		Pos2f(1.0f, 1.0f)
-	};
-
-	/* Define bottom left corner of the quad. */
-	start_x = verts[0].x;
-	start_y = verts[0].y;
-
-	/* Quad width and height. */
-	width = verts[1].x - start_x;
-	height = verts[3].y - start_y;
-
+	/* Set up the CLUT attribute for texel lookup. */
 	ClutAttrib clut;
-	TPageAttrib page;
-
-	/* Get CLUT and Texture Page attributes. */
 	clut.raw = command_fifo[2] >> 16;
+
+	/* Find the correct texture page. */
+	TPageAttrib page;
 	page.raw = command_fifo[4] >> 16;
-	
-	/* Texpage Attribute (Parameter for Textured-Polygons commands)
-	0-8    Same as GP0(E1h).Bit0-8 (see there)
-	9-10   Unused (does NOT change GP0(E1h).Bit9-10)
-	11     Same as GP0(E1h).Bit11  (see there)
-	12-13  Unused (does NOT change GP0(E1h).Bit12-13)
-	14-15  Unused (should be 0)*/
-	uint32_t tx = page.page_x * 64;
-	uint32_t ty = page.page_y * 256;
-	
-	/* Clut Attribute (Color Lookup Table, aka Palette)
-	(This attribute is relevant only for 4bit/8bit textures).
-	0-5      X coordinate X/16  (ie. in 16-halfword steps)
-	6-14     Y coordinate 0-511 (ie. in 1-line steps)
-	15       Unknown/unused (should be 0)*/
-	uint32_t cx = clut.x * 16;
-	uint32_t cy = clut.y;
 
-	/* Read CLUT table from VRAM. */
-	for (int i = 0; i < 16; i++) {
-		uint32_t entry = vram.read(cx + i, cy);
-		clut_table.push_back(entry);
-	}
-	
-	/* Loop through the pixels in the texture page. */
-	for (int y = 0; y < height; y++) {
-		for (int x = 0; x < width / 4; x++) {
-			/* For each pixel in a batch of 4 pixels seperate rgb colors. */
-			for (int k = 0; k < 4; k++) {
-				uint32_t mask = 15 << 4 * k;
-				uint32_t pixel = vram.buffer[tx + x][ty + y].raw;
-				
-				uint32_t index = (pixel & mask) >> 4 * k;
-				uint32_t data = clut_table[index];
-				
-				Color8 color = unpack(data);
-				color.alpha = 255;
-				
-				/* In opaque draw commands */
-				/* color value 0x0000 means tranparent. */
-				/* and 0x8000 means black */
-				if (data == 0) {
-					color.red = 0;
-					color.green = 0;
-					color.blue = 0;
-					color.alpha = 0;
-				}
-				else if (data == 0x8000) {
-					color.red = 0;
-					color.green = 0;
-					color.blue = 0;
-				}
+	quad.clut_x = clut.x * 16;
+	quad.clut_y = clut.y;
 
-				/* Push data to pixel buffer. */
-				pixels.push_back(color.red);
-				pixels.push_back(color.green);
-				pixels.push_back(color.blue);
-				pixels.push_back(color.alpha);
-			}
-		}
-	}
-	
-	/* Create texture. */
-	current_texture->recreate(width, height, &pixels.front());
+	quad.base_u = page.page_x * 64;
+	quad.base_v = page.page_y * 256;
+	quad.depth = page.page_colors;
 
-	/* Clear tables after use. */
-	clut_table.clear();
-	pixels.clear();
-
-	/* Push the quad to the renderer to be drawn. */
-	gl_renderer->push_textured_quad(verts, coords, current_texture);
+	raster.draw_polygon_textured(quad);
 }
 
 void GPU::gp0_shaded_trig()
 {
-	printf("Draw Shaded Triangle!\n");
+	//printf("Draw Shaded Triangle!\n");
+	
+	auto color1 = command_fifo[0];
+	auto point1 = command_fifo[1];
+	auto color2 = command_fifo[2];
+	auto point2 = command_fifo[3];
+	auto color3 = command_fifo[4];
+	auto point3 = command_fifo[5];
 
-	Verts pos =
-	{
-		Pos2i::from_gpu(command_fifo[1]),
-		Pos2i::from_gpu(command_fifo[3]),
-		Pos2i::from_gpu(command_fifo[5])
-	};
+	auto v0 = create_pixel(point1, color1);
+	auto v1 = create_pixel(point2, color2);
+	auto v2 = create_pixel(point3, color3);
 
-	Colors colors =
-	{
-		Color8::from_gpu(command_fifo[0]),
-		Color8::from_gpu(command_fifo[2]),
-		Color8::from_gpu(command_fifo[4])
-	};
+	Triangle tr = { v0, v1, v2 };
 
-	gl_renderer->push_triangle(pos, colors);
+	raster.draw_polygon_shaded(tr);
 }
 
 void GPU::gp1_reset(uint32_t data)
 {
-	printf("GPU GP1 reset\n");
+	//printf("GPU GP1 reset\n");
 	status.interrupt_req = false;
 
 	status.raw = 0;
@@ -667,7 +640,7 @@ void GPU::gp1_reset(uint32_t data)
 
 void GPU::gp1_display_mode(uint32_t data)
 {
-	printf("GPU GP1 display mode\n");
+	//printf("GPU GP1 display mode\n");
 	uint8_t hr1 = bit_range(data, 0, 2);
 	uint8_t hr2 = get_bit(data, 6);
 
@@ -677,15 +650,15 @@ void GPU::gp1_display_mode(uint32_t data)
 	status.color_depth = (ColorDepth)get_bit(data, 4);
 	status.vertical_interlace = get_bit(data, 5);
 
-	if (get_bit(data, 7) != 0)
-		panic("Unsupported display mode: 0x", data);
-
-	gl_renderer->update();
+	if (get_bit(data, 7) != 0) {
+		//printf("Unsupported display mode: 0x%x\n", data);
+		exit(0);
+	}
 }
 
 void GPU::gp1_dma_dir(uint32_t data)
 {
-	printf("GPU GP1 dma dir\n");
+	//printf("GPU GP1 dma dir\n");
 	
 	switch (data & 3) {
 	case 0: 
@@ -705,14 +678,14 @@ void GPU::gp1_dma_dir(uint32_t data)
 
 void GPU::gp1_horizontal_display_range(uint32_t data)
 {
-	printf("GPU GP1 horizontal display range\n");
-	display_horiz_start = (uint16_t)(data & 0xfff);
-	display_horiz_end = (uint16_t)((data >> 12) & 0xfff);
+	//printf("GPU GP1 horizontal display range\n");
+	display_horiz_start = bit_range(data, 0, 12);
+	display_horiz_end = bit_range(data, 12, 24);
 }
 
 void GPU::gp1_vertical_display_range(uint32_t data)
 {
-	printf("GPU GP1 vertical display range\n");
+	//printf("GPU GP1 vertical display range\n");
 	display_line_start = (uint16_t)(data & 0x3ff);
 	display_line_end = (uint16_t)((data >> 10) & 0x3ff);
 }
@@ -720,27 +693,57 @@ void GPU::gp1_vertical_display_range(uint32_t data)
 // TODO change values
 void GPU::gp1_start_of_display_area(uint32_t data)
 {
-	printf("GPU GP1 start of display area\n");
+	//printf("GPU GP1 start of display area\n");
 	display_vram_x_start = bit_range(data, 0, 10);
 	display_vram_y_start = bit_range(data, 10, 19);
 }
 
 void GPU::gp1_display_enable(uint32_t data)
 {
-	printf("GPU GP1 displat enable\n");
+	//printf("GPU GP1 displat enable\n");
 	status.display_disable = get_bit(data, 0);
 }
 
 void GPU::gp1_acknowledge_irq(uint32_t data)
 {
-	printf("GPU GP1 acknowledge interrupt\n");
+	//printf("GPU GP1 acknowledge interrupt\n");
 	status.interrupt_req = false;
 }
 
 void GPU::gp1_reset_cmd_buffer(uint32_t data)
 {
-	printf("GPU GP1 reset command buffer\n");
+	//printf("GPU GP1 reset command buffer\n");
 	command_fifo.clear();
 	remaining_attribs = 0;
 	gpu_mode = Command;
+}
+
+void GPU::gp1_gpu_info(uint32_t data)
+{
+	//printf("GPU GP1 info!\n");
+	uint32_t info = data & 0xF;
+	
+	switch (info) {
+	case 0x2: 
+		read = (uint32_t)(texture_window_y_offset << 15 | texture_window_x_offset << 10 | texture_window_y_mask << 5 | texture_window_x_mask);
+		break;
+	case 0x3: 
+		read = (uint32_t)(drawing_area_top << 10 | drawing_area_left);
+		break;
+	case 0x4: 
+		read = (uint32_t)(drawing_area_bottom << 10 | drawing_area_right);
+		break;
+	case 0x5: 
+		read = (uint32_t)(drawing_y_offset << 11 | (uint16_t)drawing_x_offset);
+		break;
+	case 0x7: 
+		read = 2;
+		break;
+	case 0x8: 
+		read = 0;
+		break;
+	default: 
+		//printf("GPU GP1 unhandled get info: 0x%x\n", data); 
+		break;
+	}
 }

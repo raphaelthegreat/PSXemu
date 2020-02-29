@@ -38,7 +38,7 @@ void Shader::load(std::string filepath, ShaderType type)
         shader_code = ss.str();        
     }
     catch (std::ifstream::failure e) {
-        printf("Could not read shader file!\n");
+        //printf("Could not read shader file!\n");
     }
     
     const char* shader_str = shader_code.c_str();
@@ -63,6 +63,7 @@ void Shader::build()
     glAttachShader(shader_id, fragment);
 
     glLinkProgram(shader_id);
+    glUseProgram(shader_id);
 }
 
 uint32_t Shader::raw()
@@ -80,8 +81,8 @@ void Shader::check_errors(GLuint shader, ShaderType type)
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
     if (!success) {
         glGetShaderInfoLog(shader, 1024, NULL, info_log);
-        printf("Could not compile %s shader!\n", str); 
-        printf("%s\n", info_log);
-        printf("-------------------------------------\n");
+        //printf("Could not compile %s shader!\n", str); 
+        //printf("%s\n", info_log);
+        //printf("-------------------------------------\n");
     }
 }

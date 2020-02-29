@@ -46,14 +46,14 @@
     <LinkIncremental>true</LinkIncremental>
     <OutDir>$(SolutionDir)binaries\$(Configuration)-$(Platform)\</OutDir>
     <IntDir>$(SolutionDir)binaries\$(Configuration)-$(Platform)\</IntDir>
-    <IncludePath>$(SolutionDir)libraries\glad;$(SolutionDir)PSXemu\;$(SolutionDir)libraries\glfw\include\;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)libraries\glm\include;$(SolutionDir)libraries\glad;$(SolutionDir)PSXemu\;$(SolutionDir)libraries\glfw\include\;$(IncludePath)</IncludePath>
     <LibraryPath>$(SolutionDir)libraries\glfw\lib\Debug\;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>$(SolutionDir)binaries\$(Configuration)-$(Platform)\</OutDir>
     <IntDir>$(SolutionDir)binaries\$(Configuration)-$(Platform)\</IntDir>
-    <IncludePath>$(SolutionDir)libraries\glad;$(SolutionDir)PSXemu\;$(SolutionDir)libraries\glfw\include\;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)libraries\glm\include;$(SolutionDir)libraries\glad;$(SolutionDir)PSXemu\;$(SolutionDir)libraries\glfw\include\;$(IncludePath)</IncludePath>
     <LibraryPath>$(SolutionDir)libraries\glfw\lib\Release\;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -92,6 +92,9 @@
     <ClCompile Include="cpu\cpu.cpp" />
     <ClCompile Include="cpu\opcode.cpp" />
     <ClCompile Include="cpu\util.cpp" />
+    <ClCompile Include="devices\cdcommand.cpp" />
+    <ClCompile Include="devices\cdrom.cpp" />
+    <ClCompile Include="devices\timer.cpp" />
     <ClCompile Include="glad.c" />
     <ClCompile Include="memory\bios.cpp" />
     <ClCompile Include="memory\dma.cpp" />
@@ -100,6 +103,7 @@
     <ClCompile Include="psx.cpp" />
     <ClCompile Include="video\gpu.cpp" />
     <ClCompile Include="video\opengl\shader.cpp" />
+    <ClCompile Include="video\rasterizer.cpp" />
     <ClCompile Include="video\renderer.cpp" />
     <ClCompile Include="video\vram.cpp" />
   </ItemGroup>
@@ -107,10 +111,11 @@
     <ClInclude Include="cpu\cache.h" />
     <ClInclude Include="cpu\cop0.h" />
     <ClInclude Include="cpu\instr.h" />
+    <ClInclude Include="devices\cdrom.h" />
     <ClInclude Include="devices\irq.h" />
     <ClInclude Include="cpu\util.h" />
     <ClInclude Include="cpu\cpu.h" />
-    <ClInclude Include="devices\header.h" />
+    <ClInclude Include="devices\timer.h" />
     <ClInclude Include="memory\bios.h" />
     <ClInclude Include="memory\dma.h" />
     <ClInclude Include="memory\bus.h" />
@@ -118,18 +123,17 @@
     <ClInclude Include="memory\ram.h" />
     <ClInclude Include="psx.h" />
     <ClInclude Include="video\gpu_reg.h" />
-    <ClInclude Include="video\opengl\buffer.h" />
     <ClInclude Include="video\gpu.h" />
+    <ClInclude Include="video\math_util.h" />
     <ClInclude Include="video\opengl\shader.h" />
     <ClInclude Include="video\opengl\texture.h" />
+    <ClInclude Include="video\rasterizer.h" />
     <ClInclude Include="video\renderer.h" />
     <ClInclude Include="video\vram.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="SCPH1001.BIN" />
     <None Include="shaders\fragment.frag" />
-    <None Include="shaders\text_fragment.frag" />
-    <None Include="shaders\text_vertex.vert" />
     <None Include="shaders\vertex.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

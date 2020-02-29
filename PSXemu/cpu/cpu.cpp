@@ -1,5 +1,11 @@
 #include "cpu.h"
 
+#pragma optimize("", on)
+
+static inline uint32_t overflow_check(uint32_t x, uint32_t y, uint32_t z) {
+    return (~(x ^ y) & (x ^ z) & 0x80000000);
+}
+
 CPU::CPU(Bus* bus)
 {
     this->bus = bus;
@@ -18,10 +24,15 @@ void CPU::tick()
 {
     /* Fetch next instruction. */
     fetch();
-    
-    /* Execute it. */
-    auto& handler = lookup[instr.opcode()];
-    handler();
+
+    if (handle_interrupts()) {
+        exception(ExceptionType::Interrupt);
+    }
+    else {
+        /* Execute it. */
+        auto& handler = lookup[instr.opcode()];
+        handler();
+    }
 
     /* Apply pending load delays. */
     handle_load_delay();
@@ -45,31 +56,28 @@ void CPU::reset()
     in_delay_slot_took_branch = false;
 }
 
-void CPU::handle_interrupts()
+bool CPU::handle_interrupts()
 {
-    uint32_t load = read(pc);
+    uint32_t load = read(current_pc);
     uint32_t instr = load >> 26;
     
     /* If it is a GTE instruction do not execute interrupt! */
     if (instr == 0x12) {       
-        return;
+        return false;
     }
 
     /* Update external irq bit in CAUSE register. */
     /* This bit is set when an interrupt is pending. */
     bool pending = bus->interruptController.interruptPending();
-    set_bit(cop0.cause.IP, 0, pending);
+    cop0.cause.IP = set_bit(cop0.cause.IP, 0, pending);
 
     /* Get interrupt state from Cop0. */
     bool irq_enabled = cop0.sr.IEc;
 
     uint32_t irq_mask = cop0.sr.Sw | (cop0.sr.Intr >> 2);
     uint32_t irq_pending = cop0.cause.Sw | (cop0.cause.IP >> 2);
-
     /* If pending and enabled, handle the interrupt. */
-    if (irq_enabled && (irq_mask & irq_pending) > 0) {
-        exception(ExceptionType::Interrupt);
-    }
+    return (irq_enabled && (irq_mask & irq_pending));
 }
 
 void CPU::fetch()
@@ -81,7 +89,7 @@ void CPU::fetch()
     addr.raw = pc;
 
     bool kseg1 = KSEG1.contains(pc).has_value();
-    if (!kseg1 && cc.is1) {
+    if (/*!kseg1 && cc.is1*/false) {
 
         /* Fetch cache line and check it's validity. */
         CacheLine& line = instr_cache[addr.cache_line];
@@ -130,17 +138,17 @@ void CPU::fetch()
     }
 }
 
-void CPU::exception(ExceptionType cause, uint32_t cop)
+void CPU::exception(ExceptionType code, uint32_t cop)
 {
     uint32_t mode = cop0.sr.raw & 0x3F;
     cop0.sr.raw &= ~(uint32_t)0x3F;
     cop0.sr.raw |= (mode << 2) & 0x3F;
 
     uint32_t copy = cop0.cause.raw & 0xff00;
-    cop0.cause.exc_code = (uint32_t)cause;
-    cop0.cause.CE = cop;
+    cop0.cause.exc_code = (uint32_t)code;
+    //cop0.cause.CE = cop;
 
-    if (cause == ExceptionType::Interrupt) {
+    if (code == ExceptionType::Interrupt) {
         cop0.epc = pc;
         
         /* Hack: related to the delay of the ex interrupt*/
@@ -172,6 +180,7 @@ void CPU::handle_load_delay()
     if (delayed_memory_load.reg != memory_load.reg) { //if loadDelay on same reg it is lost/overwritten (amidog tests)
         registers[memory_load.reg] = memory_load.value;
     }
+
     memory_load = delayed_memory_load;
     delayed_memory_load.reg = 0;
 
@@ -286,18 +295,14 @@ void CPU::op_xori()
 
 void CPU::op_sub()
 {
-    int rs = (int)registers[instr.rs()];
-    int rt = (int)registers[instr.rt()];
+    uint32_t rs = registers[instr.rs()];
+    uint32_t rt = registers[instr.rt()];
+    uint32_t z = rs - rt;
 
-    uint32_t sub = 0;
-    bool overflow = !safe_add(&sub, rs, -rt);
-
-    if (!overflow) {
-        setregisters(instr.rd(), sub);
-    }
-    else {
-        exception(ExceptionType::Overflow, instr.id());
-    }
+    if (overflow_check(rs, ~rt, z))
+        exception(ExceptionType::Overflow);
+    else
+        setregisters(instr.rd(), z);
 }
 
 void CPU::op_mult()
@@ -354,7 +359,6 @@ void CPU::op_lh()
             cop0.BadA = addr;
             exception(ExceptionType::ReadError, instr.id());
         }
-
     }
 }
 
@@ -383,11 +387,10 @@ void CPU::op_lhu()
 
 void CPU::op_rfe()
 {
-    uint32_t mode = cop0.sr.raw & 0x3F;
-    
-    /* Shift kernel/user mode bits back. */
-    cop0.sr.raw &= ~(uint32_t)0xF;
-    cop0.sr.raw |= mode >> 2;
+    uint32_t sr = cop0.regs[12];
+    sr = (sr & ~0xf) | ((sr >> 2) & 0xf);
+
+    cop0.regs[12] = sr;
 }
 
 void CPU::op_mthi()
@@ -525,18 +528,14 @@ void CPU::op_bgtz()
 
 void CPU::op_add()
 {
-    int rs = (int)registers[instr.rs()];
-    int rt = (int)registers[instr.rt()];
+    uint32_t rs = registers[instr.rs()];
+    uint32_t rt = registers[instr.rt()];
+    uint32_t z = rs + rt;
 
-    uint32_t add = 0;
-    bool overflow = !safe_add(&add, rs, rt);
-
-    if (!overflow) {
-        setregisters(instr.rd(), add);
-    }
-    else {
-        exception(ExceptionType::Overflow, instr.id());
-    }
+    if (overflow_check(rs, rt, z))
+        exception(ExceptionType::Overflow);
+    else
+        setregisters(instr.rd(), z);
 }
 
 void CPU::op_and()
@@ -642,18 +641,14 @@ void CPU::op_lw()
 
 void CPU::op_addi()
 {
-    int rs = (int)registers[instr.rs()];
-    int imm_s = (int)instr.imm_s();
+    uint32_t rs = registers[instr.rs()];
+    uint32_t imm_s = instr.imm_s();
+    uint32_t z = rs + imm_s;
 
-    uint32_t addi = 0;
-    bool overflow = !safe_add(&addi, rs, imm_s);
-
-    if (!overflow) {
-        setregisters(instr.rt(), addi);
-    }
-    else {
-        exception(ExceptionType::Overflow, instr.id());
-    }
+    if (overflow_check(rs, imm_s, z))
+        exception(ExceptionType::Overflow);
+    else
+        setregisters(instr.rt(), z);
 }
 
 void CPU::op_bne()

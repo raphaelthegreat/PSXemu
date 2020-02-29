@@ -1,17 +1,26 @@
 #pragma once
 #include "opengl/texture.h"
-#include "vram.h"
-#include "gpu_reg.h"
-#include <vector>
+#include <video/rasterizer.h>
+#include <video/gpu_reg.h>
+#include <video/vram.h>
+
+#include <glm/glm.hpp>
 #include <functional>
-#include <utility>
-#include "opengl/buffer.h"
-#include <cstdint>
+#include <vector>
 
 #define BIND(x) std::bind(&GPU::x, this)
-#define VBLANK_START 263
 
-struct DataMover {
+constexpr uint32_t CPU_CYCLES_PER_SECOND = 33868800;
+constexpr uint32_t FRAMERATE_NTSC = 60;
+constexpr uint32_t CPU_CYCLES_PER_FRAME = CPU_CYCLES_PER_SECOND / FRAMERATE_NTSC;
+
+class DataMover {
+public:
+	DataMover() = default;
+	~DataMover() = default;
+
+	void advance();
+
 	uint32_t start_x, start_y;
 	uint32_t x, y;
 
@@ -24,6 +33,7 @@ struct DataMover {
 enum GP0Command {
 	Nop = 0x0,
 	Clear_Cache = 0x1,
+	Fill_Rect = 0x2,
 	Mono_Quad = 0x28,
 	Shaded_Quad_Blend = 0x2c,
 	Shaded_Triangle = 0x30,
@@ -48,6 +58,7 @@ enum GP1Command {
 	Horizontal_Display_Range = 0x06,
 	Vertical_Display_Range = 0x07,
 	Display_Mode = 0x08
+	
 };
 
 enum class TextureMethod {
@@ -81,10 +92,7 @@ public:
 	uint16_t lines_per_frame();
 
 	/* Emulate GPU cycles. */
-	void tick(uint32_t cycles);
-
-	/* Check if the GPU is in vblank. */
-	bool is_vblank();
+	bool tick(uint32_t cycles);
 
 	/* Copy data from ram to vram. */
 	void vram_load(uint16_t data);
@@ -94,7 +102,12 @@ public:
 	void vram_copy(uint16_t data);
 
 	/* Unpack color channels from GPU data. */
-	Color8 unpack(uint16_t color);
+	glm::ivec3 unpack_color(uint32_t color);
+	glm::ivec2 unpack_point(uint32_t point);
+	
+	/* Creates a pixel struct from data given. */
+	/* NOTE: A texture coord is optional and only used in textured pixels. */
+	Pixel create_pixel(uint32_t point, uint32_t color, uint32_t coord = 0);
 
 	/* GPU write. */
 	void gp0_command(uint32_t data);
@@ -104,6 +117,7 @@ public:
 	void gp0_nop();
 	void gp0_mono_quad();
 	void gp0_draw_mode();
+	void gp0_fill_rect();
 	void gp0_draw_area_top_left();
 	void gp0_draw_area_bottom_right();
 	void gp0_texture_window_setting();
@@ -126,10 +140,12 @@ public:
 	void gp1_display_enable(uint32_t data);
 	void gp1_acknowledge_irq(uint32_t data);
 	void gp1_reset_cmd_buffer(uint32_t data);
+	void gp1_gpu_info(uint32_t data);
 
 public:
 	GPUSTAT status;
-	
+	GPURead read;
+
 	bool texture_x_flip, texture_y_flip;
 	uint8_t texture_window_x_mask;
 	uint8_t texture_window_y_mask;
@@ -153,32 +169,22 @@ public:
 	uint16_t display_line_start;
 	uint16_t display_line_end;
 	uint32_t x_offset, y_offset;
-
-	bool gp0_irq, vblank_irq;
-	uint16_t gpu_clock, scanline;
-	uint16_t gpu_clock_tick;
+	uint32_t gpu_clock, scanline, frames;
 
 	std::vector<uint32_t> command_fifo;
 	GP0Func command_handler;
-	GP0Func gp0_image_handler;
 	uint32_t remaining_attribs;
 
-	uint32_t frame_count;
-	uint32_t dot_clock;
-	
 	bool in_vblank;
 	GPUMode gpu_mode;
-	Texture8* current_texture;
 	Renderer* gl_renderer;
-
-	/* Intermmediate pixel data. */
-	std::vector<uint8_t> pixels;
-	/* The CLUT table can vary in size based on texture depth. */
-	std::vector<uint32_t> clut_table;
 
 	/* Hold info about current move operation. */
 	DataMover data_mover;
 
 	/* GPU VRAM buffer. */
 	VRAM vram;
+
+	/* Used for rasterizing graphics into vram framebuffer. */
+	Rasterizer raster;
 };

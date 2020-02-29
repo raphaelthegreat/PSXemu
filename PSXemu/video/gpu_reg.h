@@ -64,3 +64,5 @@ union GPUSTAT {
 		uint32_t odd_lines : 1;
 	};
 };
+
+typedef uint32_t GPURead;
