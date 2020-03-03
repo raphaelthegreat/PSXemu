@@ -43,3 +43,5 @@ public:
 private:
 	Buffer<1 << 20> vram;
 };
+
+extern VRAM vram;

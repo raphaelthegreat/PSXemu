@@ -105,7 +105,7 @@ void CDRom::tick()
 		}
 		else {
 			printf("Unhandled CDRom command: 0x%x\n", status.command);
-			exit(0);
+			__debugbreak();
 		}
 	}
 }
@@ -115,7 +115,7 @@ void CDRom::get_stat_cmd()
 	response_fifo.push(0x02);
 
 	status.irq_request = 3;
-	bus->interruptController.set(Interrupt::CDROM);
+	bus->irq(Interrupt::CDROM);
 }
 
 void CDRom::set_loc_cmd()
@@ -215,7 +215,7 @@ void CDRom::test_cmd()
 		response_fifo.push(0xc3);
 
 		status.irq_request = 3;
-		bus->interruptController.set(Interrupt::CDROM);
+		bus->irq(Interrupt::CDROM);
 		break;
 	}
 }
@@ -226,7 +226,7 @@ void CDRom::get_id_cmd()
 	response_fifo.push(0x02);
 
 	status.irq_request = 3;
-	bus->interruptController.set(Interrupt::CDROM);
+	bus->irq(Interrupt::CDROM);
 
 	second_response = [&]() 
 	{
@@ -242,7 +242,7 @@ void CDRom::get_id_cmd()
 		response_fifo.push(0x00);
 
 		status.irq_request = 5;
-		bus->interruptController.set(Interrupt::CDROM);
+		bus->irq(Interrupt::CDROM);
 	};
 }
 

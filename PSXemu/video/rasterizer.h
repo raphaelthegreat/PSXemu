@@ -29,14 +29,14 @@ typedef Polygon<4> Quad;
 class GPU;
 class Rasterizer {
 public:
-	Rasterizer(GPU* _gpu);
-	~Rasterizer() = default;
+    Rasterizer() = default;
+    ~Rasterizer() = default;
 
     void draw_point(int x, int y, int r, int g, int b);
 
     void draw_polygon_shaded(const Triangle& p);
     void draw_polygon_shaded(const Quad& q);
-    
+
     void draw_polygon_textured(const Triangle& p);
     void draw_polygon_textured(const Quad& q);
 
@@ -46,7 +46,4 @@ private:
 
     void fill_texture_4bpp(const Triangle& p, glm::ivec3 w, glm::ivec2 pos);
     void fill_texture_15bpp(const Triangle& p, glm::ivec3 w, glm::ivec2 pos);
-
-private:
-    GPU* gpu;
 };

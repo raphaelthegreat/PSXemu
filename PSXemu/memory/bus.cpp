@@ -1,8 +1,10 @@
 #include "bus.h"
-#include <cpu/cpu.h>
 #include <video/renderer.h>
+#include <video/gpu_core.h>
 
-#pragma optimize("", on)
+void Bus::irq(Interrupt interrupt) {
+	interruptController.set(interrupt);
+}
 
 const Range RAM = Range(0x00000000, 2048 * 1024);
 const Range BIOS = Range(0x1fc00000, 512 * 1024);
@@ -36,8 +38,8 @@ Bus::Bus(std::string bios_path, Renderer* renderer) :
     bios = std::make_unique<Bios>(bios_path);
     ram = std::make_unique<Ram>();
 
-	for (int i = 0; i < 3; i++) {
-		timers[i].init((TimerID)((uint32_t)TimerID::TMR0 + i), this);
+	for (TimerID i = TimerID::TMR0; (int)i < 3; i = (TimerID)((int)i + 1)) {
+		timers[(int)i].init(i, this);
 	}
 }
 
@@ -58,7 +60,7 @@ T Bus::read(uint32_t addr)
 {
 	if (addr % sizeof(T) != 0) {
 		printf("Unaligned read at address: 0x%x\n", addr);
-		exit(0);
+		__debugbreak();
 	}
 
 	uint32_t abs_addr = physical_addr(addr);
@@ -74,15 +76,8 @@ T Bus::read(uint32_t addr)
 	}
 	if (auto offset = GPU_RANGE.contains(abs_addr); offset.has_value()) {
 		printf("GPU read at address: 0x%x\n", addr);
-
-		if (offset.value() == 0)
-			return gpu->get_read();
-		else if (offset.value() == 4)
-			return gpu->get_status();
-		else {
-			printf("Unhandled GPU read at offset 0x%x\n", offset.value());
-			exit(0);
-		}
+		assert(T == uint32_t);
+		return gpu::bus_read(1, abs_addr);
 	}
 	if (auto offset = PAD_MEMCARD.contains(abs_addr); offset.has_value()) {
 		printf("Joypad read at offset: 0x%x\n", offset.value());
@@ -108,7 +103,7 @@ T Bus::read(uint32_t addr)
 	}
 
 	printf("Unhandled read to address: 0x%x\n", addr);
-	exit(0);
+	__debugbreak();
 	return 0;
 }
 
@@ -117,7 +112,7 @@ void Bus::write(uint32_t addr, T data)
 {
 	if (addr % sizeof(T) != 0) {
 		printf("Unaligned write to address: 0x%x\n", addr);
-		exit(0);
+		__debugbreak();
 	}
 
 	uint32_t abs_addr = physical_addr(addr);
@@ -132,15 +127,8 @@ void Bus::write(uint32_t addr, T data)
 		return;
 	if (auto offset = GPU_RANGE.contains(abs_addr); offset.has_value()) {
 		printf("GPU write to address: 0x%x with data 0x%x\n", addr, data);
-
-		if (offset.value() == 0)
-			return gpu->gp0_command(data);
-		else if (offset.value() == 4)
-			return gpu->gp1_command(data);
-		else {
-			printf("Unahandled GPU write at offset: 0x%x\n", offset.value());
-			exit(0);
-		}
+		assert(T == uint32_t);
+		return gpu::bus_write(1, abs_addr, data);
 	}
 	if (auto offset = PAD_MEMCARD.contains(abs_addr); offset.has_value()) {
 		return;
@@ -168,17 +156,17 @@ void Bus::write(uint32_t addr, T data)
 	if (auto offset = SYS_CONTROL.contains(abs_addr); offset.has_value()) { // Expansion register
 		if (offset.value() == 0 && data != 0x1f000000) {
 			printf("Attempt to remap expansion 1: 0x%x\n", data);
-			exit(0);
+			__debugbreak();
 		}
 		else if (offset.value() == 4 && data != 0x1f802000) {
 			printf("Attempt to remap expansion 1: 0x%x\n", data);
-			exit(0);
+			__debugbreak();
 		}
 		return;
 	}
 
 	printf("Unhandled write to address: 0x%x\n", addr);
-	exit(0);
+	__debugbreak();
 }
 
 /* Template definitions */

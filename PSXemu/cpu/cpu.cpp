@@ -2,8 +2,6 @@
 
 #pragma optimize("", off)
 
-static int interval = 0;
-
 static inline uint32_t overflow_check(uint32_t x, uint32_t y, uint32_t z) {
     return (~(x ^ y) & (x ^ z) & 0x80000000);
 }
@@ -71,15 +69,11 @@ bool CPU::handle_interrupts()
     /* Get interrupt state from Cop0. */
     bool irq_enabled = cop0.sr.IEc;
 
-    uint32_t irq_mask = cop0.sr.Sw | (cop0.sr.Intr >> 2);
-    uint32_t irq_pending = cop0.cause.Sw | (cop0.cause.IP >> 2);
-    
-    uint32_t IM = (cop0.sr.raw >> 8) & 0xFF;
-    uint32_t IP = (cop0.cause.raw >> 8) & 0xFF;
+    uint32_t irq_mask = (cop0.sr.raw >> 8) & 0xFF;
+    uint32_t irq_pending = (cop0.cause.raw >> 8) & 0xFF;
     
     /* If pending and enabled, handle the interrupt. */
-    if (irq_enabled && (IM & IP) > 0) {
-        printf("Interrupt!\n");
+    if (irq_enabled && (irq_mask & irq_pending) > 0) {
         exception(ExceptionType::Interrupt);
     }
 }
@@ -422,16 +416,16 @@ void CPU::op_mfhi()
 
 void CPU::op_divu()
 {
-    uint32_t n = registers[instr.rs()];
-    uint32_t d = registers[instr.rt()];
+    auto dividend = registers[instr.rs()];
+    auto divisor = registers[instr.rt()];
 
-    if (d == 0) {
-        hi = n;
-        lo = 0xFFFFFFFF;
+    if (divisor) {
+        lo = dividend / divisor;
+        hi = dividend % divisor;
     }
     else {
-        hi = n % d;
-        lo = n / d;
+        lo = 0xffffffff;
+        hi = dividend;
     }
 }
 
@@ -453,25 +447,24 @@ void CPU::op_mflo()
 
 void CPU::op_div()
 {
-    int n = (int)registers[instr.rs()];
-    int d = (int)registers[instr.rt()];
+    auto dividend = int32_t(registers[instr.rs()]);
+    auto divisor = int32_t(registers[instr.rt()]);
 
-    if (d == 0) {
-        hi = (uint32_t)n;
-        if (n >= 0) {
-            lo = 0xFFFFFFFF;
-        }
-        else {
-            lo = 1;
-        }
-    }
-    else if ((uint32_t)n == 0x80000000 && d == -1) {
-        hi = 0;
+    if (dividend == 0x80000000 && divisor == 0xffffffff) {
         lo = 0x80000000;
+        hi = 0;
+    }
+    else if (dividend >= 0 && divisor == 0) {
+        lo = uint32_t(0xffffffff);
+        hi = uint32_t(dividend);
+    }
+    else if (dividend <= 0 && divisor == 0) {
+        lo = uint32_t(0x00000001);
+        hi = uint32_t(dividend);
     }
     else {
-        hi = (uint32_t)(n % d);
-        lo = (uint32_t)(n / d);
+        lo = uint32_t(dividend / divisor);
+        hi = uint32_t(dividend % divisor);
     }
 }
 

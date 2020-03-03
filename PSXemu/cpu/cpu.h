@@ -128,7 +128,7 @@ inline void CPU::write(uint32_t addr, T data)
         ///* Check if caching is enabled. */
         //if (!cc.is1) {
         //    printf("Unsupported write while cache is enabled!\n");
-        //    exit(0);
+        //    __debugbreak();
         //}
 
         //CacheLine& line = instr_cache[address.cache_line];

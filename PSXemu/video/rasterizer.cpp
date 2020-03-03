@@ -1,6 +1,6 @@
 #include "rasterizer.h"
 #include <algorithm>
-#include <video/gpu.h>
+#include <video/vram.h>
 #include <cpu/util.h>
 
 /* Dithering table. */
@@ -10,10 +10,6 @@ static int dither_lut[4][4] = {
 	{ -3,  1, -4,  0 },
 	{  3, -1,  2, -2 }
 };
-
-Rasterizer::Rasterizer(GPU* _gpu) : gpu(_gpu)
-{
-}
 
 void Rasterizer::draw_point(int x, int y, int r, int g, int b)
 {
@@ -32,7 +28,7 @@ void Rasterizer::draw_point(int x, int y, int r, int g, int b)
 		(((b >> 3) & 0x1f) << 10);
 
 	/* Write it to the vram framebuffer. */
-	gpu->vram.write(x, y, uint16_t(color));
+	vram.write(x, y, uint16_t(color));
 }
 void Rasterizer::draw_polygon_shaded(const Triangle& p)
 {
@@ -79,7 +75,7 @@ void Rasterizer::draw_polygon_textured(const Quad& q)
 	auto& v1 = q.point[1];
 	auto& v2 = q.point[2];
 	auto& v3 = q.point[3];
-	
+
 	Triangle tr1 = { v0, v1, v2, q.clut_x, q.clut_y, q.base_u, q.base_v, q.depth };
 	Triangle tr2 = { v1, v2, v3, q.clut_x, q.clut_y, q.base_u, q.base_v, q.depth };
 
@@ -93,7 +89,7 @@ void Rasterizer::fill_polygon_shaded(Pixel v0, Pixel v1, Pixel v2)
 	int min_y = min(v0.point.y, v1.point.y, v2.point.y);
 	int max_x = max(v0.point.x, v1.point.x, v2.point.x);
 	int max_y = max(v0.point.y, v1.point.y, v2.point.y);
-	
+
 	bool is_top_left_12 = is_top_left(v1.point, v2.point);
 	bool is_top_left_20 = is_top_left(v2.point, v0.point);
 	bool is_top_left_01 = is_top_left(v0.point, v1.point);
@@ -171,14 +167,14 @@ void Rasterizer::fill_polygon_textured(const Triangle& t)
 			if (should_draw) {
 				glm::ivec3 w = glm::ivec3(w0, w1, w2);
 				switch (t.depth) {
-				case 0: 
-					fill_texture_4bpp(t, w, p); 
+				case 0:
+					fill_texture_4bpp(t, w, p);
 					break;
-				case 2: 
-					fill_texture_15bpp(t, w, p); 
+				case 2:
+					fill_texture_15bpp(t, w, p);
 					break;
-				case 3: 
-					fill_texture_15bpp(t, w, p); 
+				case 3:
+					fill_texture_15bpp(t, w, p);
 					break;
 				}
 			}
@@ -201,7 +197,7 @@ void Rasterizer::fill_texture_4bpp(const Triangle& p, glm::ivec3 w, glm::ivec2 p
 	int u = ((p.point[0].u * w.x) + (p.point[1].u * w.y) + (p.point[2].u * w.z)) / area;
 	int v = ((p.point[0].v * w.x) + (p.point[1].v * w.y) + (p.point[2].v * w.z)) / area;
 
-	auto texel = gpu->vram.read(p.base_u + (u / 4), p.base_v + v);
+	auto texel = vram.read(p.base_u + (u / 4), p.base_v + v);
 	int index = 0;
 
 	switch (u & 3) {
@@ -211,23 +207,23 @@ void Rasterizer::fill_texture_4bpp(const Triangle& p, glm::ivec3 w, glm::ivec2 p
 	case 3: index = (texel >> 12) & 0xf; break;
 	}
 
-	auto color = gpu->vram.read(p.clut_x + index, p.clut_y);
+	auto color = vram.read(p.clut_x + index, p.clut_y);
 	if (color == 0) {
 		return;
 	}
 
-	gpu->vram.write(pos.x, pos.y, color);
+	vram.write(pos.x, pos.y, color);
 }
 
-void Rasterizer::fill_texture_15bpp(const Triangle& p, glm::ivec3 w, glm::ivec2 pos) 
+void Rasterizer::fill_texture_15bpp(const Triangle& p, glm::ivec3 w, glm::ivec2 pos)
 {
 	int area = w.x + w.y + w.z;
 
 	int u = ((p.point[0].u * w.x) + (p.point[1].u * w.y) + (p.point[2].u * w.z)) / area;
 	int v = ((p.point[0].v * w.x) + (p.point[1].v * w.y) + (p.point[2].v * w.z)) / area;
 
-	auto color = gpu->vram.read(p.base_u + u, p.base_v + v);
+	auto color = vram.read(p.base_u + u, p.base_v + v);
 	if (color) {
-		gpu->vram.write(pos.x, pos.y, color);
+		vram.write(pos.x, pos.y, color);
 	}
 }

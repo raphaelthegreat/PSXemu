@@ -1,4 +1,5 @@
 #include "psx.h"
+#include <cpu/cpu.h>
 #include "video/renderer.h"
 
 PSX::PSX(Renderer* renderer)
@@ -6,13 +7,9 @@ PSX::PSX(Renderer* renderer)
 	gl_renderer = renderer;
 	bus = std::make_unique<Bus>("SCPH1001.BIN", gl_renderer);
 	cpu = std::make_unique<CPU>(bus.get());
-	gpu = std::make_unique<GPU>(gl_renderer);
 
 	/* Attach devices to the bus. */
 	bus->cpu = cpu.get();
-	bus->gpu = gpu.get();
-
-	gl_renderer->set_vram(&gpu->vram);
 }
 
 void PSX::tick()
@@ -23,16 +20,15 @@ void PSX::tick()
 			cpu->handle_interrupts();
 			bus->timers[2].tick();
 		}
-
-		bus->tick();
+		
+		bus->cdrom.tick();
 	}
 
-	bus->interruptController.set(Interrupt::VBLANK);
+	bus->irq(Interrupt::VBLANK);
+	gl_renderer->update();
 }
 
 bool PSX::render()
 {
-	gl_renderer->update();
-	
 	return gl_renderer->is_open();
 }

@@ -1,7 +1,10 @@
 #include "dma.h"
 #include <bitset>
+#include <video/gpu_core.h>
 #include <cpu/util.h>
 #include <memory/bus.h>
+
+#pragma optimize("", off)
 
 /* DMA Controller class implementation. */
 DMAController::DMAController(Bus* _bus)
@@ -104,11 +107,11 @@ void DMAController::block_copy(DMAChannels dma_channel)
 					   (addr - 4) & 0x1fffff);
 				break;
 			case DMAChannels::GPU:
-				data = bus->gpu->get_read();
+				data = gpu::data();
 				break;
 			default:
 				printf("Unhandled DMA source channel: 0x%x\n", dma_channel);
-				exit(0);
+				__debugbreak();
 			}
 
 			bus->write(addr, data);
@@ -120,11 +123,11 @@ void DMAController::block_copy(DMAChannels dma_channel)
 			/* Send command or operand to the GPU. */
 			switch (dma_channel) {
 			case DMAChannels::GPU:
-				bus->gpu->gp0_command(command);
+				gpu::gp0(command);
 				break;
 			default:
 				printf("[Block copy] Unhandled DMA source channel: 0x%x\n", dma_channel);
-				exit(0);
+				__debugbreak();
 			}
 			break;
 		}
@@ -150,7 +153,7 @@ void DMAController::list_copy(DMAChannels dma_channel)
 	/* TODO: implement Device to Ram DMA transfer. */
 	if (channel.control.trans_dir == 0) {
 		printf("Not supported DMA direction!\n");
-		exit(0);
+		__debugbreak();
 	}
 
 	/* While not reached the end. */
@@ -169,14 +172,13 @@ void DMAController::list_copy(DMAChannels dma_channel)
 			addr = (addr + 4) & 0x1ffffc;
 			
 			/* Get command from main RAM. */
-			uint32_t command = bus->read(addr);
-			printf("GPU command: 0x%x\n", command);
+			uint32_t command = bus->read(addr);			
 			
 			/* Send data to the GPU. */
-			bus->gpu->gp0_command(command);
+			gpu::gp0(command);
 			count--;
 		}
-
+		
 		/* If address is 0xffffff then we are done. */
 		/* NOTE: mednafen only checks for the MSB, but I do no know why. */
 		if (get_bit(packet.next_addr, 23))
@@ -211,7 +213,7 @@ uint32_t DMAController::read(uint32_t off)
 			return channel.control.raw;
 		default:
 			printf("Unhandled DMA read at offset: 0x%x\n", off);
-			exit(0);
+			__debugbreak();
 		}
 	} /* One of the primary registers is selected. */
 	else if (channel_num == 7) {
@@ -223,7 +225,7 @@ uint32_t DMAController::read(uint32_t off)
 			return irq.raw;
 		default:
 			printf("Unhandled DMA read at offset: 0x%x\n", off);
-			exit(0);
+			__debugbreak();
 		}
 	}
 
@@ -253,7 +255,7 @@ void DMAController::write(uint32_t off, uint32_t val)
 			break;
 		default:
 			printf("Unhandled DMA channel write at offset: 0x%x\n", off);
-			exit(0);
+			__debugbreak();
 		}
 
 		/* Check if the channel was just activated. */
@@ -275,7 +277,7 @@ void DMAController::write(uint32_t off, uint32_t val)
 			break;
 		default:
 			printf("Unhandled DMA write at offset: 0x%x\n", off);
-			exit(0);
+			__debugbreak();
 		}
 	}
 

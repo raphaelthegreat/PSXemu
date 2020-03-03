@@ -5,11 +5,10 @@
 
 int main()
 {
-	Renderer renderer(1024, 768, "PSX Emulator");
+	Renderer renderer(1024, 512, "PSX Emulator");
 	PSX emulator(&renderer);
 
-	while (emulator.render()) {
-		int j = 0;
+	while (renderer.is_open()) {
 		emulator.tick();
 	}
 }

@@ -12,8 +12,6 @@ public:
 	Renderer(int width, int height, std::string title);
 	~Renderer();
 
-	void set_vram(VRAM* _vram);
-
 	void set_draw_offset(int16_t x, int16_t y);
 	void draw_scene();
 
@@ -31,9 +29,6 @@ public:
 	/* Shader and screen texture. */
 	unique_ptr<Shader> shader;
 	unique_ptr<Texture8> screen_texture;
-
-	/* Pointer to GPU vram. */
-	VRAM* vram;
 
 	/* Screen pixels. */
 	std::vector<uint8_t> pixels;

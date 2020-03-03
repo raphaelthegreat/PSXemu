@@ -1,7 +1,7 @@
 ﻿#include "renderer.h"
 #include <GLFW/glfw3.h>
 #include <cpu/util.h>
-#include <video/gpu.h>
+#include <video/vram.h>
 
 Renderer::Renderer(int _width, int _height, std::string title)
 {
@@ -12,7 +12,7 @@ Renderer::Renderer(int _width, int _height, std::string title)
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         printf("Could not load OpenGL!\n");
-        exit(0);
+        __debugbreak();
     }
 
     glEnable(GL_BLEND);
@@ -64,11 +64,6 @@ Renderer::~Renderer()
     glfwTerminate();
 }
 
-void Renderer::set_vram(VRAM* _vram)
-{
-    vram = _vram;
-}
-
 void Renderer::set_draw_offset(int16_t x, int16_t y)
 {
     offsetx = x;
@@ -80,8 +75,8 @@ void Renderer::draw_scene()
     /* Generate a pixel stream. */
     for (int y = 0; y < 512; y++) {
         for (int x = 0; x < 1024; x++) {
-            uint32_t color = vram->read(x, y);
-
+            uint32_t color = vram.read(x, y);
+            
             pixels.push_back(((color << 3) & 0xf8));
             pixels.push_back(((color >> 2) & 0xf8));
             pixels.push_back(((color >> 7) & 0xf8));

@@ -8,7 +8,6 @@
 #include <memory/dma.h>
 #include <devices/cdrom.h>
 #include <devices/timer.h>
-#include <video/gpu.h>
 #include <cpu/cache.h>
 #include <devices/irq.h>
 #include <cpu/util.h>
@@ -26,6 +25,7 @@ public:
 };
 
 class CPU;
+class Renderer;
 class Bus {
 public:
 	Bus(std::string bios_path, Renderer* renderer);
@@ -36,6 +36,8 @@ public:
 
 	template <typename T = uint32_t>
 	void write(uint32_t addr, T data);
+
+	void irq(Interrupt interrupt);
 
 	uint32_t physical_addr(uint32_t addr);
 
@@ -52,10 +54,9 @@ public:
 
 	Renderer* gl_renderer;
 	CPU* cpu;
-	GPU* gpu;
 
 	int counter = 0;
-
+	
 	Timer timers[3];
 
 	const uint32_t region_mask[8] = {

@@ -101,7 +101,10 @@
     <ClCompile Include="memory\bus.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="psx.cpp" />
-    <ClCompile Include="video\gpu.cpp" />
+    <ClCompile Include="video\gp0_code.cpp" />
+    <ClCompile Include="video\gp0_shade.cpp" />
+    <ClCompile Include="video\gp1.cpp" />
+    <ClCompile Include="video\gpu_core.cpp" />
     <ClCompile Include="video\opengl\shader.cpp" />
     <ClCompile Include="video\rasterizer.cpp" />
     <ClCompile Include="video\renderer.cpp" />
@@ -111,6 +114,7 @@
     <ClInclude Include="cpu\cache.h" />
     <ClInclude Include="cpu\cop0.h" />
     <ClInclude Include="cpu\instr.h" />
+    <ClInclude Include="cpu\utility.h" />
     <ClInclude Include="devices\cdrom.h" />
     <ClInclude Include="devices\irq.h" />
     <ClInclude Include="cpu\util.h" />
@@ -119,11 +123,10 @@
     <ClInclude Include="memory\bios.h" />
     <ClInclude Include="memory\dma.h" />
     <ClInclude Include="memory\bus.h" />
-    <ClInclude Include="memory\header.h" />
     <ClInclude Include="memory\ram.h" />
     <ClInclude Include="psx.h" />
+    <ClInclude Include="video\gpu_core.h" />
     <ClInclude Include="video\gpu_reg.h" />
-    <ClInclude Include="video\gpu.h" />
     <ClInclude Include="video\math_util.h" />
     <ClInclude Include="video\opengl\shader.h" />
     <ClInclude Include="video\opengl\texture.h" />

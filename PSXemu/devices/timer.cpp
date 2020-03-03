@@ -1,5 +1,4 @@
 #include "timer.h"
-#include <cpu/cpu.h>
 #include <memory/bus.h>
 #include <cstdio>
 
@@ -28,12 +27,12 @@ void Timer::write(uint32_t offset, uint32_t data)
 		counter = 0;
 		control.raw = uint16_t(data | 0x400);
 
-		//paused = false;
-		//one_shot_irq = false;
-		//control.irq_request = true;
+		paused = false;
+		one_shot_irq = false;
+		control.irq_request = true;
 
 		/* Update sync modes. */
-		/*if (control.sync_enable) {
+		if (control.sync_enable) {
 			SyncMode sync = get_sync_mode();
 
 			if (timer_id == TimerID::TMR0 || timer_id == TimerID::TMR1) {
@@ -44,7 +43,7 @@ void Timer::write(uint32_t offset, uint32_t data)
 				if (sync == SyncMode::Stop)
 					paused = true;
 			}
-		}*/
+		}
 		break;
 	}
 	case 8: /* Write to Counter target. */
@@ -63,7 +62,6 @@ void Timer::init(TimerID type, Bus* _bus)
 
 	paused = false;
 	one_shot_irq = false;
-	divider = 0;
 
 	bus = _bus;
 }
@@ -82,7 +80,7 @@ void Timer::fire_irq()
 	if (!control.irq_request) {
 		Interrupt irq = irq_type();
 
-		bus->interruptController.set(irq);
+		bus->irq(irq);
 		one_shot_irq = true;
 	}
 
@@ -99,15 +97,15 @@ void Timer::tick()
 		counter++;
 
 		if (counter == target) {
-			control.reached_target = true;
+			control.raw |= 0x800;
 
-			if (control.reset == ResetWhen::Target) {
+			if (control.raw & 0x0008) {
 				counter = 0;
 			}
-			
-			if (control.irq_when_target) {
-				control.irq_request = false;
-				bus->interruptController.set(irq_type());
+
+			if (control.raw & 0x0010) {
+				control.raw &= ~0x0400;
+				bus->irq(irq_type());
 			}
 		}
 	}

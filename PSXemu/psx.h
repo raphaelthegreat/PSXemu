@@ -13,7 +13,6 @@ public:
 private:
 	unique_ptr<CPU> cpu;
 	unique_ptr<Bus> bus;
-	unique_ptr<GPU> gpu;
 
 	Renderer* gl_renderer;
 

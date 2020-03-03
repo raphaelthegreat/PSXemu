@@ -35,7 +35,7 @@ public:
     uint32_t IMASK = 0;
 
     void set(Interrupt interrupt) {
-        ISTAT = set_bit(ISTAT, (int)interrupt, true);
+        ISTAT |= (1 << (uint32_t)interrupt);
     }
 
     void writeISTAT(uint32_t value) {
