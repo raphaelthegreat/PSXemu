@@ -101,8 +101,7 @@
     <ClCompile Include="memory\bus.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="psx.cpp" />
-    <ClCompile Include="video\gp0_code.cpp" />
-    <ClCompile Include="video\gp0_shade.cpp" />
+    <ClCompile Include="video\gp0.cpp" />
     <ClCompile Include="video\gp1.cpp" />
     <ClCompile Include="video\gpu_core.cpp" />
     <ClCompile Include="video\opengl\shader.cpp" />
@@ -113,10 +112,10 @@
   <ItemGroup>
     <ClInclude Include="cpu\cache.h" />
     <ClInclude Include="cpu\cop0.h" />
+    <ClInclude Include="cpu\enum.h" />
     <ClInclude Include="cpu\instr.h" />
     <ClInclude Include="cpu\utility.h" />
     <ClInclude Include="devices\cdrom.h" />
-    <ClInclude Include="devices\irq.h" />
     <ClInclude Include="cpu\util.h" />
     <ClInclude Include="cpu\cpu.h" />
     <ClInclude Include="devices\timer.h" />

@@ -1,30 +1,29 @@
 #include "gpu_core.h"
 
-void gpu::gp1(uint32_t data) {
+void GPU::gp1(uint32_t data) {
     switch ((data >> 24) & 0x3f) {
     case 0x00:
-        state.status = 0x14802000;
+        state.status.raw = 0x14802000;
         state.textured_rectangle_x_flip = 0;
         state.textured_rectangle_y_flip = 0;
         break;
 
     case 0x01:
-        state.fifo.wr = 0;
-        state.fifo.rd = 0;
+        state.fifo.clear();
         break;
 
     case 0x02:
-        state.status &= ~0x01000000;
+        state.status.raw &= ~0x01000000;
         break;
 
     case 0x03:
-        state.status &= ~0x00800000;
-        state.status |= (data << 23) & 0x00800000;
+        state.status.raw &= ~0x00800000;
+        state.status.raw |= (data << 23) & 0x00800000;
         break;
 
     case 0x04:
-        state.status &= ~0x60000000;
-        state.status |= (data << 29) & 0x60000000;
+        state.status.raw &= ~0x60000000;
+        state.status.raw |= (data << 29) & 0x60000000;
         break;
 
     case 0x05:
@@ -43,10 +42,10 @@ void gpu::gp1(uint32_t data) {
         break;
 
     case 0x08:
-        state.status &= ~0x7f4000;
-        state.status |= (data << 17) & 0x7e0000;
-        state.status |= (data << 10) & 0x10000;
-        state.status |= (data << 7) & 0x4000;
+        state.status.raw &= ~0x7f4000;
+        state.status.raw |= (data << 17) & 0x7e0000;
+        state.status.raw |= (data << 10) & 0x10000;
+        state.status.raw |= (data << 7) & 0x4000;
         break;
 
     default:

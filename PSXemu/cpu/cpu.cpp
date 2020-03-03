@@ -1,7 +1,5 @@
 #include "cpu.h"
 
-#pragma optimize("", off)
-
 static inline uint32_t overflow_check(uint32_t x, uint32_t y, uint32_t z) {
     return (~(x ^ y) & (x ^ z) & 0x80000000);
 }
@@ -63,7 +61,7 @@ bool CPU::handle_interrupts()
 
     /* Update external irq bit in CAUSE register. */
     /* This bit is set when an interrupt is pending. */
-    bool pending = bus->interruptController.interruptPending();
+    bool pending = (i_stat & i_mask) != 0;
     cop0.cause.IP = set_bit(cop0.cause.IP, 0, pending);
 
     /* Get interrupt state from Cop0. */
@@ -86,7 +84,7 @@ void CPU::fetch()
     Address addr;
     addr.raw = pc;
 
-    bool kseg1 = KSEG1.contains(pc).has_value();
+    bool kseg1 = KSEG1.contains(pc);
     if (/*!kseg1 && cc.is1*/false) {
 
         /* Fetch cache line and check it's validity. */
@@ -134,6 +132,27 @@ void CPU::fetch()
         exception(ExceptionType::ReadError);
         return;
     }
+}
+
+uint32_t CPU::read_irq(uint32_t offset)
+{
+    if (offset == 0)
+        return i_stat;
+    else if (offset == 4)
+        return i_mask;
+}
+
+void CPU::write_irq(uint32_t offset, uint32_t value)
+{
+    if (offset == 0)
+        i_stat &= value;
+    else if (offset == 4)
+        i_mask = value & 0x7FF;
+}
+
+void CPU::trigger(Interrupt interrupt)
+{
+    i_stat |= (1 << (uint32_t)interrupt);
 }
 
 void CPU::exception(ExceptionType code, uint32_t cop)

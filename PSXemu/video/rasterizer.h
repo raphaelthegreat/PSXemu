@@ -32,7 +32,7 @@ public:
     Rasterizer() = default;
     ~Rasterizer() = default;
 
-    void draw_point(int x, int y, int r, int g, int b);
+    void draw_point(glm::ivec2 point, glm::ivec3 color);
 
     void draw_polygon_shaded(const Triangle& p);
     void draw_polygon_shaded(const Quad& q);

@@ -11,24 +11,24 @@ static int dither_lut[4][4] = {
 	{  3, -1,  2, -2 }
 };
 
-void Rasterizer::draw_point(int x, int y, int r, int g, int b)
+void Rasterizer::draw_point(glm::ivec2 point, glm::ivec3 color)
 {
 	/* Apply dithering to the pixel. */
-	auto dither = dither_lut[y & 3][x & 3];
+	auto dither = dither_lut[point.y & 3][point.x & 3];
 
 	/* Compute color components. */
-	r = std::clamp(r + dither, 0, 255);
-	g = std::clamp(g + dither, 0, 255);
-	b = std::clamp(b + dither, 0, 255);
+	uint8_t r = std::clamp(color.r + dither, 0, 255);
+	uint8_t g = std::clamp(color.g + dither, 0, 255);
+	uint8_t b = std::clamp(color.b + dither, 0, 255);
 
 	/* Calculate the final color. */
-	auto color =
+	auto color_value =
 		(((r >> 3) & 0x1f) << 0) |
 		(((g >> 3) & 0x1f) << 5) |
 		(((b >> 3) & 0x1f) << 10);
 
 	/* Write it to the vram framebuffer. */
-	vram.write(x, y, uint16_t(color));
+	vram.write(point.x, point.y, uint16_t(color_value));
 }
 void Rasterizer::draw_polygon_shaded(const Triangle& p)
 {
@@ -122,7 +122,8 @@ void Rasterizer::fill_polygon_shaded(Pixel v0, Pixel v1, Pixel v2)
 				int g = ((v0.color.g * w0) + (v1.color.g * w1) + (v2.color.g * w2)) / area;
 				int b = ((v0.color.b * w0) + (v1.color.b * w1) + (v2.color.b * w2)) / area;
 
-				draw_point(p.x, p.y, r, g, b);
+				glm::ivec3 color = glm::ivec3(r, g, b);
+				draw_point(p, color);
 			}
 
 			w0 += x12;

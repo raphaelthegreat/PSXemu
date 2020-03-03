@@ -107,7 +107,7 @@ void DMAController::block_copy(DMAChannels dma_channel)
 					   (addr - 4) & 0x1fffff);
 				break;
 			case DMAChannels::GPU:
-				data = gpu::data();
+				data = bus->gpu->data();
 				break;
 			default:
 				printf("Unhandled DMA source channel: 0x%x\n", dma_channel);
@@ -123,7 +123,7 @@ void DMAController::block_copy(DMAChannels dma_channel)
 			/* Send command or operand to the GPU. */
 			switch (dma_channel) {
 			case DMAChannels::GPU:
-				gpu::gp0(command);
+				bus->gpu->gp0(command);
 				break;
 			default:
 				printf("[Block copy] Unhandled DMA source channel: 0x%x\n", dma_channel);
@@ -175,7 +175,7 @@ void DMAController::list_copy(DMAChannels dma_channel)
 			uint32_t command = bus->read(addr);			
 			
 			/* Send data to the GPU. */
-			gpu::gp0(command);
+			bus->gpu->gp0(command);
 			count--;
 		}
 		

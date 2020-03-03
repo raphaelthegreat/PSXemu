@@ -1,6 +1,6 @@
 #pragma once
 #include <cstdint>
-#include <devices/irq.h>
+#include <cpu/enum.h>
 
 enum class TimerID {
 	TMR0 = 0,

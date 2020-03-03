@@ -1,15 +1,16 @@
 #pragma once
 #include <memory/bus.h>
 #include <unordered_map>
+#include <cpu/enum.h>
 #include <cpu/instr.h>
 #include "cop0.h"
-
-typedef std::function<void()> CPUfunc;
 
 struct MEM {
     uint32_t reg = 0;
     uint32_t value = 0;
 };
+
+typedef std::function<void()> CPUfunc;
 
 /* Memory Ranges. */
 const Range KSEG = Range(0x00000000, 2048 * 1024 * 1024);
@@ -41,6 +42,10 @@ public:
     
     template <typename T = uint32_t>
     void write(uint32_t addr, T data);
+
+    uint32_t read_irq(uint32_t offset);
+    void write_irq(uint32_t offset, uint32_t value);
+    void trigger(Interrupt interrupt);
 
     /* Opcodes. */
     void op_special(); void op_cop2(); void op_cop0();
@@ -83,6 +88,7 @@ public:
     Bus* bus;
 
     uint32_t current_pc, pc, next_pc;
+    uint32_t i_stat, i_mask;
     uint32_t registers[32];
     uint32_t hi, lo;
 
@@ -100,11 +106,6 @@ public:
     MEM delayed_memory_load;
 
     Instr instr;
-
-    //debug expansion and exe
-    bool debug = false;
-    bool isEX1 = true;
-    bool exe = true;
 
     /* Opcode lookup table. */
     std::unordered_map<uint32_t, CPUfunc> lookup, special;
