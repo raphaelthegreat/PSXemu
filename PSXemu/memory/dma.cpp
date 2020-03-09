@@ -4,7 +4,7 @@
 #include <cpu/util.h>
 #include <memory/bus.h>
 
-#pragma optimize("", off)
+//#pragma optimize("", off)
 
 /* DMA Controller class implementation. */
 DMAController::DMAController(Bus* _bus)
@@ -109,6 +109,9 @@ void DMAController::block_copy(DMAChannels dma_channel)
 			case DMAChannels::GPU:
 				data = bus->gpu->data();
 				break;
+			case DMAChannels::CDROM:
+				data = bus->cddrive.read_word();
+				break;
 			default:
 				printf("Unhandled DMA source channel: 0x%x\n", dma_channel);
 				__debugbreak();
@@ -163,8 +166,8 @@ void DMAController::list_copy(DMAChannels dma_channel)
 		packet.raw = bus->read(addr);
 		uint32_t count = packet.size;
 
-		if (count > 0)
-			printf("Packet size: %d\n", count);
+		/*if (count > 0)
+			printf("Packet size: %d\n", count);*/
 
 		/* Read words of the packet. */
 		while (count > 0) {
@@ -194,8 +197,10 @@ void DMAController::list_copy(DMAChannels dma_channel)
 	transfer_finished(dma_channel);
 }
 
-uint32_t DMAController::read(uint32_t off)
+uint32_t DMAController::read(uint32_t address)
 {
+	uint32_t off = address - DMA_RANGE.start;
+	
 	/* Get channel information from address. */
 	uint32_t channel_num = (off & 0x70) >> 4;
 	uint32_t offset = off & 0xf;
@@ -232,8 +237,10 @@ uint32_t DMAController::read(uint32_t off)
 	return 0;
 }
 
-void DMAController::write(uint32_t off, uint32_t val)
+void DMAController::write(uint32_t address, uint32_t val)
 {
+	uint32_t off = address - DMA_RANGE.start;
+	
 	/* Get channel information from address. */
 	uint32_t channel_num = (off & 0x70) >> 4;
 	uint32_t offset = off & 0xf;

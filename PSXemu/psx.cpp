@@ -2,6 +2,8 @@
 #include <cpu/cpu.h>
 #include "video/renderer.h"
 
+//#pragma optimize("", off)
+
 PSX::PSX(Renderer* renderer)
 {
 	gl_renderer = renderer;
@@ -12,26 +14,28 @@ PSX::PSX(Renderer* renderer)
 	/* Attach devices to the bus. */
 	bus->cpu = cpu.get();
 	bus->gpu = gpu.get();
+	
+	window = gl_renderer->window;
+	glfwSetWindowUserPointer(window, bus.get());
+	glfwSetKeyCallback(window, &PSX::key_callback);
 }
 
 void PSX::tick()
-{
-	for (int j = 0; j < 10; j++) {
-		for (int i = 0; i < 33868800 / 60 / 10; i++) {
-			/* Execute a machine cycle and handle interrupts. */
-			cpu->tick();
-			cpu->handle_interrupts();
-			
-			/* Update the timers. */
-			for (int i = 0; i < 3; i++) 
-				bus->timers[i].tick();
-		}
-		
-		/* Update the CDROM drive. */
-		bus->cdrom.tick();
+{	
+	for (int i = 0; i < 100; i++) {
+		cpu->tick();
 	}
 
-	/* At the end of the frame post VBLANK. */
-	bus->irq(Interrupt::VBLANK);
-	gl_renderer->update();
+	bus->tick();
+	cpu->handle_interrupts();
+}
+
+void PSX::key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+	Bus* bus = (Bus*)glfwGetWindowUserPointer(window);
+	
+	if (action == GLFW_PRESS)
+		bus->controller.controller.handleJoyPadDown(key);
+	else if (action == GLFW_RELEASE)
+		bus->controller.controller.handleJoyPadUp(key);
 }

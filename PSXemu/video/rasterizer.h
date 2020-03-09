@@ -9,7 +9,7 @@ struct Pixel {
     /* Color */
     glm::ivec3 color;
     /* Texture coords */
-    uint32_t u, v;
+    uint32_t u = 0, v = 0;
 };
 
 /* A polygon on the GPU. */
@@ -29,7 +29,7 @@ typedef Polygon<4> Quad;
 class GPU;
 class Rasterizer {
 public:
-    Rasterizer() = default;
+    Rasterizer(GPU* _gpu);
     ~Rasterizer() = default;
 
     void draw_point(glm::ivec2 point, glm::ivec3 color);
@@ -46,4 +46,7 @@ private:
 
     void fill_texture_4bpp(const Triangle& p, glm::ivec3 w, glm::ivec2 pos);
     void fill_texture_15bpp(const Triangle& p, glm::ivec3 w, glm::ivec2 pos);
+
+private:
+    GPU* gpu;
 };

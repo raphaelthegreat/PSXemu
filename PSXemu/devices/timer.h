@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <cpu/enum.h>
 
+#define NUM_TIMERS 3
+
 enum class TimerID {
 	TMR0 = 0,
 	TMR1 = 1,
@@ -42,7 +44,14 @@ enum class IRQToggle : uint32_t {
 	Toggle = 1
 };
 
-typedef uint16_t CounterValue;
+union CounterValue {
+	uint32_t raw;
+
+	struct {
+		uint32_t value : 16;
+		uint32_t : 16;
+	};
+};
 
 union CounterControl {
 	uint32_t raw;
@@ -63,21 +72,27 @@ union CounterControl {
 	};
 };
 
-typedef uint16_t CounterTarget;
+union CounterTarget {
+	uint32_t raw;
+
+	struct {
+		uint32_t target : 16;
+		uint32_t : 16;
+	};
+};
 
 class Bus;
 class Timer {
 public:
-	Timer() = default;
+	Timer(TimerID type, Bus* _bus);
 	~Timer() = default;
-
-	void init(TimerID type, Bus* _bus);
 
 	/* Trigger an interrupt. */
 	void fire_irq();
 
 	/* Add cycles to the timer. */
-	void tick();
+	void tick(uint32_t cycles);
+	void gpu_sync(bool hblank, bool vblank);
 
 	/* Map timer to interrupt type. */
 	Interrupt irq_type();
@@ -93,12 +108,14 @@ public:
 	SyncMode get_sync_mode();
 
 public:
-	CounterValue counter;
-	CounterControl control;
+	CounterValue current;
+	CounterControl mode;
 	CounterTarget target;
 
 	bool paused, one_shot_irq;
-	uint32_t divider;
+	bool in_hblank, in_vblank;
+	bool just_hblank, just_vblank;
+	uint32_t count;
 
 	TimerID timer_id;
 	Bus* bus;

@@ -4,11 +4,13 @@
 #include <memory>
 
 #include <memory/bios.h>
+#include <memory/range.h>
 #include <memory/ram.h>
 #include <memory/dma.h>
 
-#include <devices/cdrom.h>
+#include <devices/cdrom_drive.hpp>
 #include <devices/timer.h>
+#include <devices/controller.h>
 
 #include <cpu/enum.h>
 #include <cpu/cache.h>
@@ -16,17 +18,6 @@
 
 #include <video/gpu_core.h>
 using std::unique_ptr;
-
-struct Range {
-	Range(uint32_t begin, uint32_t size) : 
-		start(begin), length(size) {}
-
-	inline bool contains(uint32_t addr) const;
-	inline uint32_t offset(uint32_t addr) const;
-
-public:
-	uint32_t start, length;
-};
 
 class CPU;
 class Renderer;
@@ -52,14 +43,20 @@ public:
 
 	/* Peripherals. */
 	DMAController dma;
+	JOYPAD controller;
 	CacheControl cache_ctrl;
-	CDRom cdrom;
+	io::CdromDrive cddrive;
 
 	Renderer* gl_renderer;
 	GPU* gpu;
 	CPU* cpu;
 
-	Timer timers[3];
+	Timer timers[3] = {
+		{ TimerID::TMR0, this },
+		{ TimerID::TMR1, this },
+		{ TimerID::TMR2, this }
+	};
+
 	const uint32_t region_mask[8] = {
 		0xffffffff, 0xffffffff,
 		0xffffffff, 0xffffffff,

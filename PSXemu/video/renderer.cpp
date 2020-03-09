@@ -1,5 +1,4 @@
 ﻿#include "renderer.h"
-#include <GLFW/glfw3.h>
 #include <cpu/util.h>
 #include <video/vram.h>
 

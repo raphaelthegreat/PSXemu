@@ -25,7 +25,14 @@ void CPU::tick()
 
     /* Execute it. */
     auto& handler = lookup[instr.opcode()];
-    handler();
+    
+    if (handler != nullptr) 
+        handler();
+    else {
+        printf("0x%x\n", instr.opcode());
+        exit(0);
+    }
+         
 
     /* Apply pending load delays. */
     handle_load_delay();
@@ -85,7 +92,7 @@ void CPU::fetch()
     addr.raw = pc;
 
     bool kseg1 = KSEG1.contains(pc);
-    if (/*!kseg1 && cc.is1*/false) {
+    if (!kseg1 && cc.is1) {
 
         /* Fetch cache line and check it's validity. */
         CacheLine& line = instr_cache[addr.cache_line];
@@ -134,16 +141,20 @@ void CPU::fetch()
     }
 }
 
-uint32_t CPU::read_irq(uint32_t offset)
+uint32_t CPU::read_irq(uint32_t address)
 {
+    uint32_t offset = INTERRUPT.offset(address);
+    
     if (offset == 0)
         return i_stat;
     else if (offset == 4)
         return i_mask;
 }
 
-void CPU::write_irq(uint32_t offset, uint32_t value)
+void CPU::write_irq(uint32_t address, uint32_t value)
 {
+    uint32_t offset = INTERRUPT.offset(address);
+
     if (offset == 0)
         i_stat &= value;
     else if (offset == 4)
@@ -363,17 +374,15 @@ void CPU::op_nor()
 
 void CPU::op_lh()
 {
-    if (!cop0.sr.IsC) {
-        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
-        if ((addr & 0x1) == 0) {
-            uint32_t value = (uint32_t)(short)read<uint16_t>(addr);
-            delayedLoad(instr.rt(), value);
-        }
-        else {
-            cop0.BadA = addr;
-            exception(ExceptionType::ReadError, instr.id());
-        }
+    if ((addr & 0x1) == 0) {
+        uint32_t value = (uint32_t)(short)read<uint16_t>(addr);
+        delayedLoad(instr.rt(), value);
+    }
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::ReadError, instr.id());
     }
 }
 
@@ -384,20 +393,17 @@ void CPU::op_sllv()
 
 void CPU::op_lhu()
 {
-    if (!cop0.sr.IsC) {
-        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
-        if ((addr & 0x1) == 0) {
-            uint32_t value = read<uint16_t>(addr);
-            //Console.WriteLine("LHU: " + addr.ToString("x8") + " value: " + value.ToString("x8"));
-            delayedLoad(instr.rt(), value);
-        }
-        else {
-            cop0.BadA = addr;
-            exception(ExceptionType::ReadError, instr.id());
-        }
-
-    } //else Console.WriteLine("Ignoring Load");
+    if ((addr & 0x1) == 0) {
+        uint32_t value = read<uint16_t>(addr);
+        //Console.WriteLine("LHU: " + addr.ToString("x8") + " value: " + value.ToString("x8"));
+        delayedLoad(instr.rt(), value);
+    }
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::ReadError, instr.id());
+    }
 }
 
 void CPU::op_rfe()
@@ -517,10 +523,8 @@ void CPU::op_jalr()
 
 void CPU::op_lbu()
 {
-    if (!cop0.sr.IsC) {
-        uint32_t value = read<uint8_t>(registers[instr.rs()] + instr.imm_s());
-        delayedLoad(instr.rt(), value);
-    }
+    uint32_t value = read<uint8_t>(registers[instr.rs()] + instr.imm_s());
+    delayedLoad(instr.rt(), value);
 }
 
 void CPU::op_blez()
@@ -579,11 +583,9 @@ void CPU::op_beq()
 }
 
 void CPU::op_lb()
-{ //todo redo this as it unnecesary read
-    if (!cop0.sr.IsC) {
-        uint32_t value = (uint32_t)(uint8_t)read<uint8_t>(registers[instr.rs()] + instr.imm_s());
-        delayedLoad(instr.rt(), value);
-    } //else Console.WriteLine("Ignoring Write");
+{
+    uint32_t value = (uint32_t)(uint8_t)read<uint8_t>(registers[instr.rs()] + instr.imm_s());
+    delayedLoad(instr.rt(), value);
 }
 
 void CPU::op_jr()
@@ -595,8 +597,7 @@ void CPU::op_jr()
 
 void CPU::op_sb()
 {
-    if (!cop0.sr.IsC)
-        write<uint8_t>(registers[instr.rs()] + instr.imm_s(), (int8_t)registers[instr.rt()]);
+    write<uint8_t>(registers[instr.rs()] + instr.imm_s(), (int8_t)registers[instr.rt()]);
 }
 
 void CPU::op_andi()
@@ -612,18 +613,15 @@ void CPU::op_jal()
 
 void CPU::op_sh()
 {
-    if (!cop0.sr.IsC) {
-        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
-        if ((addr & 0x1) == 0) {
-            write<uint16_t>(addr, (uint16_t)registers[instr.rt()]);
-        }
-        else {
-            cop0.BadA = addr;
-            exception(ExceptionType::WriteError, instr.id());
-        }
+    if ((addr & 0x1) == 0) {
+        write<uint16_t>(addr, (uint16_t)registers[instr.rt()]);
     }
-    //else Console.WriteLine("Ignoring Write");
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::WriteError, instr.id());
+    }
 }
 
 void CPU::op_addu()
@@ -639,18 +637,15 @@ void CPU::op_sltu()
 
 void CPU::op_lw()
 {
-    if (!cop0.sr.IsC) {
-        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
-        if ((addr & 0x3) == 0) {
-            uint32_t value = read(addr);
-            delayedLoad(instr.rt(), value);
-        }
-        else {
-            cop0.BadA = addr;
-            exception(ExceptionType::ReadError, instr.id());
-        }
-
+    if ((addr & 0x3) == 0) {
+        uint32_t value = read(addr);
+        delayedLoad(instr.rt(), value);
+    }
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::ReadError, instr.id());
     }
 }
 
@@ -724,16 +719,14 @@ void CPU::op_sll()
 
 void CPU::op_sw()
 {
-    if (!cop0.sr.IsC) {
-        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
-        if ((addr & 0x3) == 0) {
-            write(addr, registers[instr.rt()]);
-        }
-        else {
-            cop0.BadA = addr;
-            exception(ExceptionType::WriteError, instr.id());
-        }
+    if ((addr & 0x3) == 0) {
+        write(addr, registers[instr.rt()]);
+    }
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::WriteError, instr.id());
     }
 }
 

@@ -17,6 +17,7 @@ const Range KSEG = Range(0x00000000, 2048 * 1024 * 1024);
 const Range KSEG0 = Range(0x80000000, 512 * 1024 * 1024);
 const Range KSEG1 = Range(0xA0000000, 512 * 1024 * 1024);
 const Range KSEG2 = Range(0xC0000000, 1024 * 1024 * 1024);
+const Range INTERRUPT = Range(0x1f801070, 8);
 
 /* A class implemeting the MIPS R3000A CPU. */
 class CPU {
@@ -43,8 +44,8 @@ public:
     template <typename T = uint32_t>
     void write(uint32_t addr, T data);
 
-    uint32_t read_irq(uint32_t offset);
-    void write_irq(uint32_t offset, uint32_t value);
+    uint32_t read_irq(uint32_t address);
+    void write_irq(uint32_t address, uint32_t value);
     void trigger(Interrupt interrupt);
 
     /* Opcodes. */
@@ -121,27 +122,24 @@ template<typename T>
 inline void CPU::write(uint32_t addr, T data)
 {
     if (cop0.sr.IsC) {
-        //CacheControl& cc = bus->cache_ctrl;
+        CacheControl& cc = bus->cache_ctrl;
 
-        //Address address;
-        //address.raw = addr;
+        Address address;
+        address.raw = addr;
 
-        ///* Check if caching is enabled. */
-        //if (!cc.is1) {
-        //    printf("Unsupported write while cache is enabled!\n");
-        //    __debugbreak();
-        //}
+        /* Check if caching is enabled. */
+        if (!cc.is1) {
+            return;
+        }
 
-        //CacheLine& line = instr_cache[address.cache_line];
+        CacheLine& line = instr_cache[address.cache_line];
 
-        ///* Invalid cache line if TAG test is enabled. */
-        //if (cc.tag) {
-        //    /* Invalidate by pushing index out of range. */
-        //    line.tag.index = 4;
-        //} /* Write to cache. */
-        //else {
-        //    line.instrs[address.index].value = data;
-        //}
+        /* Invalid cache line if TAG test is enabled. */
+        if (cc.tag) /* Invalidate by pushing index out of range. */
+            line.tag.index = 4;
+        else /* Write to cache. */
+            line.instrs[address.index].value = data;
+
         return;
     }
     else {

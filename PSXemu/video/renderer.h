@@ -1,12 +1,12 @@
 #pragma once
 #include "opengl/shader.h"
 #include "opengl/texture.h"
+#include <GLFW/glfw3.h>
 #include <memory>
 
 using std::unique_ptr;
 
 class VRAM;
-class GLFWwindow;
 class Renderer {
 public:
 	Renderer(int width, int height, std::string title);

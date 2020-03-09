@@ -1,11 +1,9 @@
 #include "bus.h"
 #include <cpu/cpu.h>
 #include <video/renderer.h>
+#pragma optimize("", off)
 
-const Range RAM = Range(0x00000000, 2048 * 1024);
-const Range BIOS = Range(0x1fc00000, 512 * 1024);
 const Range SYS_CONTROL = Range(0x1f801000, 36);
-const Range CDROM = Range(0x1f801800, 0x4);
 const Range RAM_SIZE = Range(0x1f801060, 4);
 const Range CACHE_CONTROL = Range(0xfffe0130, 4);
 const Range SPU_RANGE = Range(0x1f801c00, 640);
@@ -13,22 +11,10 @@ const Range EXPANSION_2 = Range(0x1f802000, 66);
 const Range EXPANSION_1 = Range(0x1f000000, 512 * 1024);
 const Range TIMERS = Range(0x1f801100, 0x30);
 const Range PAD_MEMCARD = Range(0x1f801040, 15);
-const Range DMA_RANGE = Range(0x1f801080, 0x80);
-const Range GPU_RANGE = Range(0x1f801810, 8);
-const Range INTERRUPT = Range(0x1f801070, 8);
-
-inline bool Range::contains(uint32_t addr) const
-{
-	return (addr >= start && addr < start + length);
-}
-
-inline uint32_t Range::offset(uint32_t addr) const
-{
-	return addr - start;
-}
+const Range CDROM = Range(0x1f801800, 0x4);
 
 Bus::Bus(std::string bios_path, Renderer* renderer) :
-	dma(this), cdrom(this)
+	dma(this)
 {
     gl_renderer = renderer;
     
@@ -36,10 +22,8 @@ Bus::Bus(std::string bios_path, Renderer* renderer) :
     bios = std::make_unique<Bios>(bios_path);
     ram = std::make_unique<Ram>();
 
-	/* Init the timers. */
-	for (TimerID i = TimerID::TMR0; (int)i < 3; i = (TimerID)((int)i + 1)) {
-		timers[(int)i].init(i, this);
-	}
+	controller.bus = this;
+	cddrive.init(this);
 }
 
 uint32_t Bus::physical_addr(uint32_t addr)
@@ -50,7 +34,18 @@ uint32_t Bus::physical_addr(uint32_t addr)
 
 void Bus::tick()
 {
-	cdrom.tick();
+	if (gpu->tick(300)) {
+		gl_renderer->update();
+		cpu->trigger(Interrupt::VBLANK);
+	}
+
+	for (int i = 0; i < 3; i++) {
+		timers[i].tick(300);
+		timers[i].gpu_sync(gpu->in_hblank, gpu->in_vblank);
+	}
+
+	controller.tick();
+	cddrive.step();
 	dma.tick();
 }
 
@@ -68,13 +63,15 @@ T Bus::read(uint32_t addr)
 
 	/* Map the memory ranges. */
 	uint32_t abs_addr = physical_addr(addr);
-	if (RAM.contains(abs_addr)) {
-		uint32_t offset = RAM.offset(abs_addr);
-		return ram->read<T>(offset);
+	if (TIMERS.contains(abs_addr)) {
+		uint8_t timer = (abs_addr >> 4) & 3;
+		return timers[timer].read(abs_addr);
+	}
+	else if (RAM.contains(abs_addr)) {
+		return ram->read<T>(abs_addr);
 	}
 	else if (BIOS.contains(abs_addr)) {
-		uint32_t offset = BIOS.offset(abs_addr);
-		return bios->read<T>(offset);
+		return bios->read<T>(abs_addr);
 	}
 	else if (EXPANSION_1.contains(abs_addr)) {
 		return 0xff;
@@ -83,31 +80,23 @@ T Bus::read(uint32_t addr)
 		return 0;
 	}
 	else if (CDROM.contains(abs_addr)) {
-		uint32_t offset = CDROM.offset(abs_addr);
-		return cdrom.read(offset);
+		if (std::is_same<T, uint8_t>::value)
+			return cddrive.read_reg(abs_addr);
 	}
 	else if (GPU_RANGE.contains(abs_addr)) {
-		uint32_t offset = GPU_RANGE.offset(abs_addr);
-		return gpu->read(offset);
+		return gpu->read(abs_addr);
 	}
 	else if (PAD_MEMCARD.contains(abs_addr)) {
-		return 0xffffffff;
-	}
-	else if (TIMERS.contains(abs_addr)) {
-		uint8_t timer = (abs_addr >> 4) & 3;
-		uint8_t offset = abs_addr & 0xf;
-		return timers[timer].read(offset);
+		return controller.read<T>(abs_addr);
 	}
 	else if (DMA_RANGE.contains(abs_addr)) {
-		uint32_t offset = DMA_RANGE.offset(abs_addr);
-		return dma.read(offset);
+		return dma.read(abs_addr);
 	}
 	else if (SPU_RANGE.contains(abs_addr)) {
 		return 0;
 	}
 	else if (INTERRUPT.contains(abs_addr)) {
-		uint32_t offset = INTERRUPT.offset(abs_addr);
-		return cpu->read_irq(offset);
+		return cpu->read_irq(abs_addr);
 	}
 
 	printf("Unhandled read to address: 0x%x\n", addr);
@@ -127,8 +116,7 @@ void Bus::write(uint32_t addr, T data)
 	uint32_t abs_addr = physical_addr(addr);
 	if (TIMERS.contains(abs_addr)) {
 		uint8_t timer = (abs_addr >> 4) & 3;
-		uint8_t offset = abs_addr & 0xf;
-		return timers[timer].write(offset, data);
+		return timers[timer].write(abs_addr, data);
 	}
 	else if (EXPANSION_2.contains(abs_addr)) {
 		return;
@@ -140,19 +128,17 @@ void Bus::write(uint32_t addr, T data)
 		return gpu->write(abs_addr, data);
 	}
 	else if (PAD_MEMCARD.contains(abs_addr)) {
-		return;
+		return controller.write<T>(abs_addr, data);
 	}
 	else if (CDROM.contains(abs_addr)) {
-		uint32_t offset = CDROM.offset(abs_addr);
-		return cdrom.write(offset, data);
+		if (std::is_same<T, uint8_t>::value)
+			return cddrive.write_reg(abs_addr, data);
 	}
 	else if (DMA_RANGE.contains(abs_addr)) {
-		uint32_t offset = DMA_RANGE.offset(abs_addr);
-		return dma.write(offset, data);
+		return dma.write(abs_addr, data);
 	}
 	else if (RAM.contains(abs_addr)) {
-		uint32_t offset = RAM.offset(abs_addr);
-		return ram->write<T>(offset, data);
+		return ram->write<T>(abs_addr, data);
 	}
 	else if (CACHE_CONTROL.contains(abs_addr)) {
 		return;
@@ -164,8 +150,7 @@ void Bus::write(uint32_t addr, T data)
 		return;
 	}
 	else if (INTERRUPT.contains(abs_addr)) {
-		uint32_t offset = INTERRUPT.offset(abs_addr);
-		return cpu->write_irq(offset, data);
+		return cpu->write_irq(abs_addr, data);
 	}
 
 	printf("Unhandled write to address: 0x%x\n", addr);

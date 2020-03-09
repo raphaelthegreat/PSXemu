@@ -62,7 +62,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -78,7 +78,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -92,8 +92,9 @@
     <ClCompile Include="cpu\cpu.cpp" />
     <ClCompile Include="cpu\opcode.cpp" />
     <ClCompile Include="cpu\util.cpp" />
-    <ClCompile Include="devices\cdcommand.cpp" />
-    <ClCompile Include="devices\cdrom.cpp" />
+    <ClCompile Include="devices\cdrom_disk.cpp" />
+    <ClCompile Include="devices\cdrom_drive.cpp" />
+    <ClCompile Include="devices\controller.cpp" />
     <ClCompile Include="devices\timer.cpp" />
     <ClCompile Include="glad.c" />
     <ClCompile Include="memory\bios.cpp" />
@@ -115,17 +116,19 @@
     <ClInclude Include="cpu\enum.h" />
     <ClInclude Include="cpu\instr.h" />
     <ClInclude Include="cpu\utility.h" />
-    <ClInclude Include="devices\cdrom.h" />
     <ClInclude Include="cpu\util.h" />
     <ClInclude Include="cpu\cpu.h" />
+    <ClInclude Include="devices\cdrom_disk.hpp" />
+    <ClInclude Include="devices\cdrom_drive.hpp" />
+    <ClInclude Include="devices\controller.h" />
     <ClInclude Include="devices\timer.h" />
     <ClInclude Include="memory\bios.h" />
     <ClInclude Include="memory\dma.h" />
     <ClInclude Include="memory\bus.h" />
     <ClInclude Include="memory\ram.h" />
+    <ClInclude Include="memory\range.h" />
     <ClInclude Include="psx.h" />
     <ClInclude Include="video\gpu_core.h" />
-    <ClInclude Include="video\gpu_reg.h" />
     <ClInclude Include="video\math_util.h" />
     <ClInclude Include="video\opengl\shader.h" />
     <ClInclude Include="video\opengl\texture.h" />
@@ -134,6 +137,7 @@
     <ClInclude Include="video\vram.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Crash_Bandicoot.bin" />
     <None Include="SCPH1001.BIN" />
     <None Include="shaders\fragment.frag" />
     <None Include="shaders\vertex.vert" />

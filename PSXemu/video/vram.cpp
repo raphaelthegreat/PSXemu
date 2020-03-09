@@ -1,6 +1,6 @@
 #include "vram.h"
 
-#pragma optimize("", off)
+//#pragma optimize("", off)
 
 uint16_t* VRAM::get()
 {

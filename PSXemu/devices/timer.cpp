@@ -1,38 +1,52 @@
 #include "timer.h"
+#include <cpu/cpu.h>
 #include <memory/bus.h>
 #include <cstdio>
 
-uint32_t Timer::read(uint32_t offset)
+Timer::Timer(TimerID type, Bus* _bus)
 {
-	switch (offset) {
-	case 0: /* Write to Counter value. */
-		return counter;
-		break;
-	case 4: /* Write to Counter control. */
-		return control.raw;
-		break;
-	case 8: /* Write to Counter target. */
-		return target;
-		break;
+	timer_id = type;
+
+	current.raw = 0;
+	mode.raw = 0;
+	target.raw = 0;
+
+	paused = false;
+	one_shot_irq = false;
+	count = 0;
+
+	bus = _bus;
+}
+
+uint32_t Timer::read(uint32_t address)
+{
+	switch (address & 0xf) {
+	case 0x0: /* Write to Counter value. */
+		return current.value;
+	case 0x4: /* Write to Counter control. */
+		return mode.raw;
+	case 0x8: /* Write to Counter target. */
+		return target.target;
 	}
 }
 
-void Timer::write(uint32_t offset, uint32_t data)
+void Timer::write(uint32_t address, uint32_t data)
 {
-	switch (offset) {
-	case 0: /* Write to Counter value. */
-		counter = uint16_t(data);
+	switch (address & 0xf) {
+	case 0x0: /* Write to Counter value. */
+		current.raw = data;
 		break;
-	case 4: { /* Write to Counter control. */
-		counter = 0;
-		control.raw = uint16_t(data | 0x400);
+	case 0x4: { /* Write to Counter control. */
+		current.raw = 0;
+		mode.raw = data;
 
 		paused = false;
 		one_shot_irq = false;
-		control.irq_request = true;
+		mode.irq_request = true;
 
-		/* Update sync modes. */
-		if (control.sync_enable) {
+		printf("Update timer sync mode!\n");
+
+		if (mode.sync_enable) {
 			SyncMode sync = get_sync_mode();
 
 			if (timer_id == TimerID::TMR0 || timer_id == TimerID::TMR1) {
@@ -46,69 +60,166 @@ void Timer::write(uint32_t offset, uint32_t data)
 		}
 		break;
 	}
-	case 8: /* Write to Counter target. */
-		target = uint16_t(data);
+	case 0x8: /* Write to Counter target. */
+		target.raw = data;
 		break;
 	}
-}
-
-void Timer::init(TimerID type, Bus* _bus)
-{
-	timer_id = type;
-
-	counter = 0;
-	control.raw = 0;
-	target = 0;
-
-	paused = false;
-	one_shot_irq = false;
-
-	bus = _bus;
 }
 
 void Timer::fire_irq()
 {
 	/* Toggle the interrupt request bit or disable it. */
-	if (control.irq_pulse_mode == IRQToggle::Toggle)
-		control.irq_request = !control.irq_request;
+	if (mode.irq_pulse_mode == IRQToggle::Toggle)
+		mode.irq_request = !mode.irq_request;
 	else
-		control.irq_request = false;
+		mode.irq_request = false;
 
-	if (control.irq_repeat_mode == IRQRepeat::OneShot && one_shot_irq)
+	if (mode.irq_repeat_mode == IRQRepeat::OneShot && one_shot_irq)
 		return;
 
-	if (!control.irq_request) {
+	if (!mode.irq_request) {
 		Interrupt irq = irq_type();
-
 		bus->irq(irq);
 		one_shot_irq = true;
 	}
 
 	/* Low for only a few cycles. */
-	control.irq_request = true;
+	mode.irq_request = true;
 }
 
-void Timer::tick()
+void Timer::tick(uint32_t cycles)
 {
-	divider++;
+	/* Dont do anything if paused. */
+	if (paused)
+		return;
 
-	if (divider == 8) {
-		divider = 0;
-		counter++;
+	/* Get the timer's clock source. */
+	ClockSrc clock_src = get_clock_source();
 
-		if (counter == target) {
-			control.raw |= 0x800;
+	/* Get the timer's sync mode. */
+	SyncMode sync = get_sync_mode();
 
-			if (control.raw & 0x0008) {
-				counter = 0;
+	/* Add the cycles to the counter. */
+	count += cycles;
+
+	/* Increment timer according to the clock source and id. */
+	if (timer_id == TimerID::TMR0) {
+		if (mode.sync_enable) {
+			/* Timer is paused. */
+			if (sync == SyncMode::Pause) {
+				return;
 			}
-
-			if (control.raw & 0x0010) {
-				control.raw &= ~0x0400;
-				bus->irq(irq_type());
+			/* Timer must be reset. */
+			else if (sync == SyncMode::Reset) {
+				current.raw = 0;
+			}
+			/* Timer must be reset and paused outside of hblank. */
+			else if (sync == SyncMode::ResetPause) {
+				current.raw = 0;
+				if (!in_hblank) return;
+			}
+			/* Timer is paused until hblank occurs once. */
+			else {
+				if (just_hblank)
+					mode.sync_enable = false;
+				else
+					return;
 			}
 		}
+		
+		if (clock_src == ClockSrc::Dotclock) {
+			current.raw += (uint16_t)(count * 11 / 7);
+			count = 0;
+		}
+		else {
+			current.raw += (uint16_t)count;
+			count = 0;
+		}
 	}
+	else if (timer_id == TimerID::TMR1) {
+		if (mode.sync_enable) {
+			/* Timer is paused. */
+			if (sync == SyncMode::Pause) {
+				return;
+			}
+			/* Timer must be reset. */
+			else if (sync == SyncMode::Reset) {
+				current.raw = 0;
+			}
+			/* Timer must be reset and paused outside of vblank. */
+			else if (sync == SyncMode::ResetPause) {
+				current.raw = 0;
+				if (!in_vblank) return;
+			}
+			/* Timer is paused until vblank occurs once. */
+			else {
+				if (just_vblank)
+					mode.sync_enable = false;
+				else
+					return;
+			}
+		}
+
+		if (clock_src == ClockSrc::Hblank) {
+			current.raw += (uint16_t)(count / 2160);
+			count %= 2160;
+		}
+		else {
+			current.raw += (uint16_t)count;
+			count = 0;
+		}
+	}
+	else if (timer_id == TimerID::TMR2) {
+		if (mode.sync_enable && sync == SyncMode::Stop)
+			return;
+		
+		if (clock_src == ClockSrc::SystemDiv8) {
+			current.raw += (uint16_t)(count / 8);
+			count %= 8;
+		}
+		else {
+			current.raw += (uint16_t)count;
+			count = 0;
+		}
+	}
+
+	bool should_irq = false;
+
+	/* If we reached or exceeded the target value. */
+	if (current.value >= target.target) {
+		mode.reached_target = true;
+
+		if (mode.reset == ResetWhen::Target)
+			current.raw = 0;
+
+		if (mode.irq_when_target)
+			should_irq = true;
+	}
+
+	/* If there was an overflow. */
+	if (current.raw >= 0xffff) {
+		mode.reached_overflow = true;
+
+		if (mode.reset == ResetWhen::Overflow)
+			current.raw = 0;
+		
+		if (mode.irq_when_overflow)
+			should_irq = true;
+	}
+
+	/* Fire interrupt if necessary. */
+	if (should_irq) {
+		fire_irq();
+	}
+}
+
+void Timer::gpu_sync(bool hblank, bool vblank)
+{
+	just_hblank = !in_hblank && hblank;
+	just_vblank = !in_vblank && vblank;
+	
+	in_hblank = hblank;
+	in_vblank = vblank;
 }
 
 Interrupt Timer::irq_type()
@@ -126,7 +237,7 @@ Interrupt Timer::irq_type()
 
 ClockSrc Timer::get_clock_source()
 {
-	uint32_t clock_src = control.clock_source;
+	uint32_t clock_src = mode.clock_source;
 
 	/* Timer0 can have either dotclock or sysclock. */
 	if (timer_id == TimerID::TMR0) {
@@ -154,7 +265,7 @@ ClockSrc Timer::get_clock_source()
 
 SyncMode Timer::get_sync_mode()
 {
-	uint32_t sync = control.sync_mode;
+	uint32_t sync = mode.sync_mode;
 
 	if (timer_id == TimerID::TMR0 || timer_id == TimerID::TMR1) {
 		return (SyncMode)sync;

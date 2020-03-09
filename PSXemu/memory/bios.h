@@ -1,6 +1,9 @@
 #pragma once
 #include <string>
 #include <cstdint>
+#include "range.h"
+
+const Range BIOS = Range(0x1fc00000, 512 * 1024);
 
 class Bios {
 public:
@@ -15,9 +18,11 @@ public:
 };
 
 template<typename T>
-inline T Bios::read(uint32_t offset)
+inline T Bios::read(uint32_t address)
 {
-    T val = 0;
+	uint32_t offset = address - BIOS.start;
+	
+	T val = 0;
     for (int i = 0; i < sizeof(T); i++) {
         val |= (bios[offset + i] << 8 * i);
     }
