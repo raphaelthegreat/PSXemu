@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <memory/range.h>
 
 enum class SyncType : uint32_t {
 	Manual = 0,
@@ -84,23 +85,31 @@ union ListPacket {
 	};
 };
 
+const Range DMA_RANGE = Range(0x1f801080, 0x80);
+
 /* A class that manages all DMA routines. */
 class Bus;
 class DMAController {
 public:
 	DMAController(Bus* bus);
 
+	void tick();
+	bool is_channel_enabled(DMAChannels channel);
+	void transfer_finished(DMAChannels channel);
+
 	void start(DMAChannels channel);
 	void block_copy(DMAChannels channel);
 	void list_copy(DMAChannels channel);
 
-	uint32_t read(uint32_t offset);
-	void write(uint32_t offset, uint32_t data);
+	uint32_t read(uint32_t address);
+	void write(uint32_t address, uint32_t data);
 
 public:
 	DMAControl control;
 	DMAIRQReg irq;
 	DMAChannel channels[7];
+
+	bool irq_pending = false;
 
 	Bus* bus;
 };

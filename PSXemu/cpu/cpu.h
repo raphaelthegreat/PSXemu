@@ -1,21 +1,23 @@
 #pragma once
 #include <memory/bus.h>
 #include <unordered_map>
+#include <cpu/enum.h>
 #include <cpu/instr.h>
 #include "cop0.h"
-
-typedef std::function<void()> CPUfunc;
 
 struct MEM {
     uint32_t reg = 0;
     uint32_t value = 0;
 };
 
+typedef std::function<void()> CPUfunc;
+
 /* Memory Ranges. */
 const Range KSEG = Range(0x00000000, 2048 * 1024 * 1024);
 const Range KSEG0 = Range(0x80000000, 512 * 1024 * 1024);
 const Range KSEG1 = Range(0xA0000000, 512 * 1024 * 1024);
 const Range KSEG2 = Range(0xC0000000, 1024 * 1024 * 1024);
+const Range INTERRUPT = Range(0x1f801070, 8);
 
 /* A class implemeting the MIPS R3000A CPU. */
 class CPU {
@@ -28,7 +30,7 @@ public:
     void fetch();
     void branch();
     void register_opcodes();
-    void handle_interrupts();
+    bool handle_interrupts();
     void handle_load_delay();
     
     void exception(ExceptionType cause, uint32_t cop = 0);
@@ -41,6 +43,10 @@ public:
     
     template <typename T = uint32_t>
     void write(uint32_t addr, T data);
+
+    uint32_t read_irq(uint32_t address);
+    void write_irq(uint32_t address, uint32_t value);
+    void trigger(Interrupt interrupt);
 
     /* Opcodes. */
     void op_special(); void op_cop2(); void op_cop0();
@@ -83,6 +89,7 @@ public:
     Bus* bus;
 
     uint32_t current_pc, pc, next_pc;
+    uint32_t i_stat, i_mask;
     uint32_t registers[32];
     uint32_t hi, lo;
 
@@ -100,11 +107,6 @@ public:
     MEM delayed_memory_load;
 
     Instr instr;
-
-    //debug expansion and exe
-    bool debug = false;
-    bool isEX1 = true;
-    bool exe = true;
 
     /* Opcode lookup table. */
     std::unordered_map<uint32_t, CPUfunc> lookup, special;
@@ -127,20 +129,18 @@ inline void CPU::write(uint32_t addr, T data)
 
         /* Check if caching is enabled. */
         if (!cc.is1) {
-            printf("Unsupported write while cache is enabled!\n");
-            exit(0);
+            return;
         }
 
         CacheLine& line = instr_cache[address.cache_line];
 
         /* Invalid cache line if TAG test is enabled. */
-        if (cc.tag) {
-            /* Invalidate by pushing index out of range. */
+        if (cc.tag) /* Invalidate by pushing index out of range. */
             line.tag.index = 4;
-        } /* Write to cache. */
-        else {
+        else /* Write to cache. */
             line.instrs[address.index].value = data;
-        }
+
+        return;
     }
     else {
         bus->write<T>(addr, data);

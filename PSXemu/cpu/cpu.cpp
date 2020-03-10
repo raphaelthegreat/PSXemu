@@ -1,5 +1,9 @@
 #include "cpu.h"
 
+static inline uint32_t overflow_check(uint32_t x, uint32_t y, uint32_t z) {
+    return (~(x ^ y) & (x ^ z) & 0x80000000);
+}
+
 CPU::CPU(Bus* bus)
 {
     this->bus = bus;
@@ -18,10 +22,17 @@ void CPU::tick()
 {
     /* Fetch next instruction. */
     fetch();
-    
+
     /* Execute it. */
     auto& handler = lookup[instr.opcode()];
-    handler();
+    
+    if (handler != nullptr) 
+        handler();
+    else {
+        printf("0x%x\n", instr.opcode());
+        exit(0);
+    }
+         
 
     /* Apply pending load delays. */
     handle_load_delay();
@@ -45,27 +56,27 @@ void CPU::reset()
     in_delay_slot_took_branch = false;
 }
 
-void CPU::handle_interrupts()
+bool CPU::handle_interrupts()
 {
-    uint32_t load = read(pc);
+    uint32_t load = read(current_pc);
     uint32_t instr = load >> 26;
-    
+
     /* If it is a GTE instruction do not execute interrupt! */
-    if (instr == 0x12) {       
-        return;
+    if (instr == 0x12) {
+        return false;
     }
 
     /* Update external irq bit in CAUSE register. */
     /* This bit is set when an interrupt is pending. */
-    bool pending = bus->interruptController.interruptPending();
-    set_bit(cop0.cause.IP, 0, pending);
+    bool pending = (i_stat & i_mask) != 0;
+    cop0.cause.IP = set_bit(cop0.cause.IP, 0, pending);
 
     /* Get interrupt state from Cop0. */
     bool irq_enabled = cop0.sr.IEc;
 
-    uint32_t irq_mask = cop0.sr.Sw | (cop0.sr.Intr >> 2);
-    uint32_t irq_pending = cop0.cause.Sw | (cop0.cause.IP >> 2);
-
+    uint32_t irq_mask = (cop0.sr.raw >> 8) & 0xFF;
+    uint32_t irq_pending = (cop0.cause.raw >> 8) & 0xFF;
+    
     /* If pending and enabled, handle the interrupt. */
     if (irq_enabled && (irq_mask & irq_pending) > 0) {
         exception(ExceptionType::Interrupt);
@@ -80,7 +91,7 @@ void CPU::fetch()
     Address addr;
     addr.raw = pc;
 
-    bool kseg1 = KSEG1.contains(pc).has_value();
+    bool kseg1 = KSEG1.contains(pc);
     if (!kseg1 && cc.is1) {
 
         /* Fetch cache line and check it's validity. */
@@ -130,20 +141,44 @@ void CPU::fetch()
     }
 }
 
-void CPU::exception(ExceptionType cause, uint32_t cop)
+uint32_t CPU::read_irq(uint32_t address)
+{
+    uint32_t offset = INTERRUPT.offset(address);
+    
+    if (offset == 0)
+        return i_stat;
+    else if (offset == 4)
+        return i_mask;
+}
+
+void CPU::write_irq(uint32_t address, uint32_t value)
+{
+    uint32_t offset = INTERRUPT.offset(address);
+
+    if (offset == 0)
+        i_stat &= value;
+    else if (offset == 4)
+        i_mask = value & 0x7FF;
+}
+
+void CPU::trigger(Interrupt interrupt)
+{
+    i_stat |= (1 << (uint32_t)interrupt);
+}
+
+void CPU::exception(ExceptionType code, uint32_t cop)
 {
     uint32_t mode = cop0.sr.raw & 0x3F;
     cop0.sr.raw &= ~(uint32_t)0x3F;
     cop0.sr.raw |= (mode << 2) & 0x3F;
 
     uint32_t copy = cop0.cause.raw & 0xff00;
-    cop0.cause.exc_code = (uint32_t)cause;
-    cop0.cause.CE = cop;
+    cop0.cause.exc_code = (uint32_t)code;
+    //cop0.cause.CE = cop;
 
-    if (cause == ExceptionType::Interrupt) {
+    if (code == ExceptionType::Interrupt) {
         cop0.epc = pc;
         
-        /* Hack: related to the delay of the ex interrupt*/
         is_delay_slot = is_branch;
         in_delay_slot_took_branch = took_branch;
     }
@@ -161,8 +196,7 @@ void CPU::exception(ExceptionType cause, uint32_t cop)
             cop0.cause.BT = true;
         }
     }
-
-    /* Select exception address. */
+    
     pc = exception_addr[cop0.sr.BEV];
     next_pc = pc + 4;
 }
@@ -172,6 +206,7 @@ void CPU::handle_load_delay()
     if (delayed_memory_load.reg != memory_load.reg) { //if loadDelay on same reg it is lost/overwritten (amidog tests)
         registers[memory_load.reg] = memory_load.value;
     }
+
     memory_load = delayed_memory_load;
     delayed_memory_load.reg = 0;
 
@@ -286,18 +321,14 @@ void CPU::op_xori()
 
 void CPU::op_sub()
 {
-    int rs = (int)registers[instr.rs()];
-    int rt = (int)registers[instr.rt()];
+    uint32_t rs = registers[instr.rs()];
+    uint32_t rt = registers[instr.rt()];
+    uint32_t z = rs - rt;
 
-    uint32_t sub = 0;
-    bool overflow = !safe_add(&sub, rs, -rt);
-
-    if (!overflow) {
-        setregisters(instr.rd(), sub);
-    }
-    else {
-        exception(ExceptionType::Overflow, instr.id());
-    }
+    if (overflow_check(rs, ~rt, z))
+        exception(ExceptionType::Overflow);
+    else
+        setregisters(instr.rd(), z);
 }
 
 void CPU::op_mult()
@@ -343,18 +374,15 @@ void CPU::op_nor()
 
 void CPU::op_lh()
 {
-    if (!cop0.sr.IsC) {
-        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
-        if ((addr & 0x1) == 0) {
-            uint32_t value = (uint32_t)(short)read<uint16_t>(addr);
-            delayedLoad(instr.rt(), value);
-        }
-        else {
-            cop0.BadA = addr;
-            exception(ExceptionType::ReadError, instr.id());
-        }
-
+    if ((addr & 0x1) == 0) {
+        uint32_t value = (uint32_t)(short)read<uint16_t>(addr);
+        delayedLoad(instr.rt(), value);
+    }
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::ReadError, instr.id());
     }
 }
 
@@ -365,27 +393,22 @@ void CPU::op_sllv()
 
 void CPU::op_lhu()
 {
-    if (!cop0.sr.IsC) {
-        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
-        if ((addr & 0x1) == 0) {
-            uint32_t value = read<uint16_t>(addr);
-            //Console.WriteLine("LHU: " + addr.ToString("x8") + " value: " + value.ToString("x8"));
-            delayedLoad(instr.rt(), value);
-        }
-        else {
-            cop0.BadA = addr;
-            exception(ExceptionType::ReadError, instr.id());
-        }
-
-    } //else Console.WriteLine("Ignoring Load");
+    if ((addr & 0x1) == 0) {
+        uint32_t value = read<uint16_t>(addr);
+        //Console.WriteLine("LHU: " + addr.ToString("x8") + " value: " + value.ToString("x8"));
+        delayedLoad(instr.rt(), value);
+    }
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::ReadError, instr.id());
+    }
 }
 
 void CPU::op_rfe()
 {
     uint32_t mode = cop0.sr.raw & 0x3F;
-    
-    /* Shift kernel/user mode bits back. */
     cop0.sr.raw &= ~(uint32_t)0xF;
     cop0.sr.raw |= mode >> 2;
 }
@@ -418,16 +441,16 @@ void CPU::op_mfhi()
 
 void CPU::op_divu()
 {
-    uint32_t n = registers[instr.rs()];
-    uint32_t d = registers[instr.rt()];
+    auto dividend = registers[instr.rs()];
+    auto divisor = registers[instr.rt()];
 
-    if (d == 0) {
-        hi = n;
-        lo = 0xFFFFFFFF;
+    if (divisor) {
+        lo = dividend / divisor;
+        hi = dividend % divisor;
     }
     else {
-        hi = n % d;
-        lo = n / d;
+        lo = 0xffffffff;
+        hi = dividend;
     }
 }
 
@@ -449,25 +472,24 @@ void CPU::op_mflo()
 
 void CPU::op_div()
 {
-    int n = (int)registers[instr.rs()];
-    int d = (int)registers[instr.rt()];
+    auto dividend = int32_t(registers[instr.rs()]);
+    auto divisor = int32_t(registers[instr.rt()]);
 
-    if (d == 0) {
-        hi = (uint32_t)n;
-        if (n >= 0) {
-            lo = 0xFFFFFFFF;
-        }
-        else {
-            lo = 1;
-        }
-    }
-    else if ((uint32_t)n == 0x80000000 && d == -1) {
-        hi = 0;
+    if (dividend == 0x80000000 && divisor == 0xffffffff) {
         lo = 0x80000000;
+        hi = 0;
+    }
+    else if (dividend >= 0 && divisor == 0) {
+        lo = uint32_t(0xffffffff);
+        hi = uint32_t(dividend);
+    }
+    else if (dividend <= 0 && divisor == 0) {
+        lo = uint32_t(0x00000001);
+        hi = uint32_t(dividend);
     }
     else {
-        hi = (uint32_t)(n % d);
-        lo = (uint32_t)(n / d);
+        lo = uint32_t(dividend / divisor);
+        hi = uint32_t(dividend % divisor);
     }
 }
 
@@ -501,10 +523,8 @@ void CPU::op_jalr()
 
 void CPU::op_lbu()
 {
-    if (!cop0.sr.IsC) {
-        uint32_t value = read<uint8_t>(registers[instr.rs()] + instr.imm_s());
-        delayedLoad(instr.rt(), value);
-    }
+    uint32_t value = read<uint8_t>(registers[instr.rs()] + instr.imm_s());
+    delayedLoad(instr.rt(), value);
 }
 
 void CPU::op_blez()
@@ -525,18 +545,14 @@ void CPU::op_bgtz()
 
 void CPU::op_add()
 {
-    int rs = (int)registers[instr.rs()];
-    int rt = (int)registers[instr.rt()];
+    uint32_t rs = registers[instr.rs()];
+    uint32_t rt = registers[instr.rt()];
+    uint32_t z = rs + rt;
 
-    uint32_t add = 0;
-    bool overflow = !safe_add(&add, rs, rt);
-
-    if (!overflow) {
-        setregisters(instr.rd(), add);
-    }
-    else {
-        exception(ExceptionType::Overflow, instr.id());
-    }
+    if (overflow_check(rs, rt, z))
+        exception(ExceptionType::Overflow);
+    else
+        setregisters(instr.rd(), z);
 }
 
 void CPU::op_and()
@@ -548,12 +564,14 @@ void CPU::op_mfc0()
 {
     uint32_t mfc = instr.rd();
     
+    
     if (mfc == 3 || mfc >= 5 && mfc <= 9 || mfc >= 11 && mfc <= 15) {
         delayedLoad(instr.rt(), cop0.regs[mfc]);
     }
     else {
         exception(ExceptionType::IllegalInstr, instr.id());
     }
+    
 }
 
 void CPU::op_beq()
@@ -565,11 +583,9 @@ void CPU::op_beq()
 }
 
 void CPU::op_lb()
-{ //todo redo this as it unnecesary read
-    if (!cop0.sr.IsC) {
-        uint32_t value = (uint32_t)(uint8_t)read<uint8_t>(registers[instr.rs()] + instr.imm_s());
-        delayedLoad(instr.rt(), value);
-    } //else Console.WriteLine("Ignoring Write");
+{
+    uint32_t value = (uint32_t)(uint8_t)read<uint8_t>(registers[instr.rs()] + instr.imm_s());
+    delayedLoad(instr.rt(), value);
 }
 
 void CPU::op_jr()
@@ -581,8 +597,7 @@ void CPU::op_jr()
 
 void CPU::op_sb()
 {
-    if (!cop0.sr.IsC)
-        write<uint8_t>(registers[instr.rs()] + instr.imm_s(), (int8_t)registers[instr.rt()]);
+    write<uint8_t>(registers[instr.rs()] + instr.imm_s(), (int8_t)registers[instr.rt()]);
 }
 
 void CPU::op_andi()
@@ -598,18 +613,15 @@ void CPU::op_jal()
 
 void CPU::op_sh()
 {
-    if (!cop0.sr.IsC) {
-        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
-        if ((addr & 0x1) == 0) {
-            write<uint16_t>(addr, (uint16_t)registers[instr.rt()]);
-        }
-        else {
-            cop0.BadA = addr;
-            exception(ExceptionType::WriteError, instr.id());
-        }
+    if ((addr & 0x1) == 0) {
+        write<uint16_t>(addr, (uint16_t)registers[instr.rt()]);
     }
-    //else Console.WriteLine("Ignoring Write");
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::WriteError, instr.id());
+    }
 }
 
 void CPU::op_addu()
@@ -625,35 +637,28 @@ void CPU::op_sltu()
 
 void CPU::op_lw()
 {
-    if (!cop0.sr.IsC) {
-        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
-        if ((addr & 0x3) == 0) {
-            uint32_t value = read(addr);
-            delayedLoad(instr.rt(), value);
-        }
-        else {
-            cop0.BadA = addr;
-            exception(ExceptionType::ReadError, instr.id());
-        }
-
+    if ((addr & 0x3) == 0) {
+        uint32_t value = read(addr);
+        delayedLoad(instr.rt(), value);
+    }
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::ReadError, instr.id());
     }
 }
 
 void CPU::op_addi()
 {
-    int rs = (int)registers[instr.rs()];
-    int imm_s = (int)instr.imm_s();
+    uint32_t rs = registers[instr.rs()];
+    uint32_t imm_s = instr.imm_s();
+    uint32_t z = rs + imm_s;
 
-    uint32_t addi = 0;
-    bool overflow = !safe_add(&addi, rs, imm_s);
-
-    if (!overflow) {
-        setregisters(instr.rt(), addi);
-    }
-    else {
-        exception(ExceptionType::Overflow, instr.id());
-    }
+    if (overflow_check(rs, imm_s, z))
+        exception(ExceptionType::Overflow);
+    else
+        setregisters(instr.rt(), z);
 }
 
 void CPU::op_bne()
@@ -669,6 +674,7 @@ void CPU::op_mtc0()
     uint32_t value = registers[instr.rt()];
     uint32_t reg = instr.rd();
 
+    
     //MTC0 can trigger soft interrupts
     bool prev_IEC = cop0.sr.IEc;
 
@@ -713,16 +719,14 @@ void CPU::op_sll()
 
 void CPU::op_sw()
 {
-    if (!cop0.sr.IsC) {
-        uint32_t addr = registers[instr.rs()] + instr.imm_s();
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
-        if ((addr & 0x3) == 0) {
-            write(addr, registers[instr.rt()]);
-        }
-        else {
-            cop0.BadA = addr;
-            exception(ExceptionType::WriteError, instr.id());
-        }
+    if ((addr & 0x3) == 0) {
+        write(addr, registers[instr.rt()]);
+    }
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::WriteError, instr.id());
     }
 }
 

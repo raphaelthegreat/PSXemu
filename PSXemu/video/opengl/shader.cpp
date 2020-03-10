@@ -63,6 +63,7 @@ void Shader::build()
     glAttachShader(shader_id, fragment);
 
     glLinkProgram(shader_id);
+    glUseProgram(shader_id);
 }
 
 uint32_t Shader::raw()

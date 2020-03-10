@@ -69,11 +69,13 @@ Texture<T>::Texture(uint32_t _width, uint32_t _height, T* pixels, Filtering filt
 		type = GL_UNSIGNED_SHORT;
 
 	/* Allocate space on the GPU. */
-	glTexImage2D(GL_TEXTURE_2D, 0, (int)format, width, height, 0, (int)format, GL_UNSIGNED_BYTE, pixels);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, (int)format, GL_UNSIGNED_BYTE, pixels);
 	glGenerateMipmap(GL_TEXTURE_2D);
 
 	tfiltering = filtering;
 	tformat = format;
+
+	unbind();
 }
 
 template<typename T>
@@ -107,6 +109,8 @@ inline void Texture<T>::recreate(uint32_t _width, uint32_t _height, T* pixels)
 									(GLenum)tformat, 
 									GL_UNSIGNED_BYTE, 
 									pixels);
+
+	unbind();
 }
 
 template<typename T>
@@ -120,4 +124,6 @@ inline void Texture<T>::update(T* pixels)
 									(GLenum)tformat, 
 									GL_UNSIGNED_BYTE, 
 									pixels);
+
+	unbind();
 }

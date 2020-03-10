@@ -11,19 +11,18 @@ void CPU::op_special()
 
 void CPU::op_cop0()
 {
-	switch (instr.rs()) {
-	case 0b00000: 
-		op_mfc0(); 
-		break;
-	case 0b00100: 
-		op_mtc0(); 
-		break;
-	case 0b10000: 
-		op_rfe(); 
-		break;
-	default: 
-		exception(ExceptionType::IllegalInstr, instr.id()); 
-		break;
+	switch ((instr.value >> 21) & 31) {
+	default: exception(ExceptionType::IllegalInstr); return;
+
+	case 0x00: op_mfc0(); return; // mfc0 rt,rd
+	case 0x04: op_mtc0(); return; // mtc0 rt,rd
+
+	case 0x10:
+		switch (instr.value & 63) {
+		default:  exception(ExceptionType::IllegalInstr); return;
+
+		case 0x10: op_rfe(); return; // rfe
+		}
 	}
 }
 

@@ -1,21 +1,17 @@
 #pragma once
 #include <cstdint>
 
-union Pixel {
-	uint16_t raw;
-	
-	struct {
-		uint16_t ll : 4;
-		uint16_t ml : 4;
-		uint16_t mr : 4;
-		uint16_t rr : 4;
-	};
+template <uint32_t size>
+union Buffer {
+	uint8_t byte[size];
+	uint16_t halfword[size / 2];
+	uint32_t word[size / 4];
 };
 
 union ClutAttrib {
 	uint16_t raw;
 
-	struct { 
+	struct {
 		uint16_t x : 6;
 		uint16_t y : 9;
 		uint16_t zr : 1;
@@ -34,13 +30,18 @@ union TPageAttrib {
 	};
 };
 
-struct VRAM {
+class VRAM {
 public:
 	VRAM() = default;
+	~VRAM() = default;
 
 	uint16_t read(int x, int y);
 	void write(int x, int y, uint16_t data);
 
-public:
-	Pixel buffer[1024][512];
+	uint16_t* get();
+
+private:
+	Buffer<1 << 20> vram;
 };
+
+extern VRAM vram;
