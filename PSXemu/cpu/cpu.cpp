@@ -4,7 +4,8 @@ static inline uint32_t overflow_check(uint32_t x, uint32_t y, uint32_t z) {
     return (~(x ^ y) & (x ^ z) & 0x80000000);
 }
 
-CPU::CPU(Bus* bus)
+CPU::CPU(Bus* bus) :
+    gte(this)
 {
     this->bus = bus;
     
@@ -227,6 +228,53 @@ void CPU::op_bcond()
     if (should_branch) branch();
 }
 
+void CPU::op_lwc2()
+{
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
+
+    if ((addr & 0x3) == 0) {
+        uint32_t data = read(addr);
+        gte.write_data(instr.rt(), data);
+    }
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::CoprocessorError, instr.id());
+    }
+}
+
+void CPU::op_swc2()
+{
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
+
+    if ((addr & 0x3) == 0) {
+        bus->write(addr, gte.read_data(instr.rt()));
+    }
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::CoprocessorError, instr.id());
+    }
+}
+
+void CPU::op_mfc2()
+{
+    delayedLoad(instr.rt(), gte.read_data(instr.rd()));
+}
+
+void CPU::op_mtc2()
+{
+    gte.write_data(instr.rd(), registers[instr.rt()]);
+}
+
+void CPU::op_cfc2()
+{
+    delayedLoad(instr.rt(), gte.read_control(instr.rd()));
+}
+
+void CPU::op_ctc2()
+{
+    gte.write_control(instr.rd(), registers[instr.rt()]);
+}
+
 void CPU::op_swr()
 {
     uint32_t addr = registers[instr.rs()] + instr.imm_s();
@@ -236,7 +284,8 @@ void CPU::op_swr()
     uint32_t value = 0;
     switch (addr & 0b11) {
     case 0:
-        value = registers[instr.rt()]; break;
+        value = registers[instr.rt()]; 
+        break;
     case 1:
         value = (aligned_load & 0x000000FF) | (registers[instr.rt()] << 8);
         break;
@@ -259,10 +308,18 @@ void CPU::op_swl()
 
     uint32_t value = 0;
     switch (addr & 0b11) {
-    case 0: value = (aligned_load & 0xFFFFFF00) | (registers[instr.rt()] >> 24); break;
-    case 1: value = (aligned_load & 0xFFFF0000) | (registers[instr.rt()] >> 16); break;
-    case 2: value = (aligned_load & 0xFF000000) | (registers[instr.rt()] >> 8); break;
-    case 3: value = registers[instr.rt()]; break;
+    case 0: 
+        value = (aligned_load & 0xFFFFFF00) | (registers[instr.rt()] >> 24); 
+        break;
+    case 1: 
+        value = (aligned_load & 0xFFFF0000) | (registers[instr.rt()] >> 16); 
+        break;
+    case 2: 
+        value = (aligned_load & 0xFF000000) | (registers[instr.rt()] >> 8); 
+        break;
+    case 3: 
+        value = registers[instr.rt()]; 
+        break;
     }
 
     write(aligned_addr, value);
@@ -282,10 +339,18 @@ void CPU::op_lwr()
     }
 
     switch (addr & 0b11) {
-    case 0: value = aligned_load; break;
-    case 1: value = (LRValue & 0xFF000000) | (aligned_load >> 8); break;
-    case 2: value = (LRValue & 0xFFFF0000) | (aligned_load >> 16); break;
-    case 3: value = (LRValue & 0xFFFFFF00) | (aligned_load >> 24); break;
+    case 0: 
+        value = aligned_load; 
+        break;
+    case 1: 
+        value = (LRValue & 0xFF000000) | (aligned_load >> 8); 
+        break;
+    case 2: 
+        value = (LRValue & 0xFFFF0000) | (aligned_load >> 16); 
+        break;
+    case 3: 
+        value = (LRValue & 0xFFFFFF00) | (aligned_load >> 24); 
+        break;
     }
 
     delayedLoad(instr.rt(), value);
@@ -305,12 +370,20 @@ void CPU::op_lwl()
     }
 
     switch (addr & 0b11) {
-    case 0: value = (LRValue & 0x00FFFFFF) | (aligned_load << 24); break;
-    case 1: value = (LRValue & 0x0000FFFF) | (aligned_load << 16); break;
-    case 2: value = (LRValue & 0x000000FF) | (aligned_load << 8); break;
-    case 3: value = aligned_load; break;
+    case 0: 
+        value = (LRValue & 0x00FFFFFF) | (aligned_load << 24); 
+        break;
+    case 1: 
+        value = (LRValue & 0x0000FFFF) | (aligned_load << 16); 
+        break;
+    case 2: 
+        value = (LRValue & 0x000000FF) | (aligned_load << 8); 
+        break;
+    case 3: 
+        value = aligned_load; 
+        break;
     }
-    //Console.WriteLine("case " + (addr & 0b11) + " LWL Value " + value.ToString("x8"));
+ 
     delayedLoad(instr.rt(), value);
 }
 
@@ -395,9 +468,8 @@ void CPU::op_lhu()
 {
     uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
-    if ((addr & 0x1) == 0) {
+    if (addr % 2 == 0) {
         uint32_t value = read<uint16_t>(addr);
-        //Console.WriteLine("LHU: " + addr.ToString("x8") + " value: " + value.ToString("x8"));
         delayedLoad(instr.rt(), value);
     }
     else {

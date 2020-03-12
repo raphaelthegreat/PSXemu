@@ -6,7 +6,7 @@
 static int command_size[256] = {
     1, 1, 3, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $00
     1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $10
-    1, 1, 1, 1,  1, 1, 1, 1,  5, 1, 1, 1,  9, 9, 1, 1, // $20
+    4, 1, 1, 1,  1, 1, 1, 1,  5, 1, 1, 1,  9, 9, 1, 1, // $20
     6, 1, 1, 1,  1, 1, 1, 1,  8, 1, 1, 1,  1, 1, 1, 1, // $30
 
     1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $40
@@ -73,8 +73,10 @@ void GPU::gp0(uint32_t data) {
         auto& handler = gp0_lookup[command];
         if (handler != nullptr)
             handler();
-        else
+        else {
+            std::cout << "Unahndled GP0 command: 0x" << std::hex << command << '\n';
             __debugbreak();
+        }
         
         state.fifo.clear();
     }
@@ -84,6 +86,22 @@ void GPU::gp0_nop()
 {
     //std::cout << "GPU Nop.\n";
     return;
+}
+
+void GPU::gp0_mono_trig()
+{
+    auto color = state.fifo[0];
+    auto point1 = state.fifo[1];
+    auto point2 = state.fifo[2];
+    auto point3 = state.fifo[3];
+
+    auto v0 = create_pixel(point1, color);
+    auto v1 = create_pixel(point2, color);
+    auto v2 = create_pixel(point3, color);
+
+    Triangle t = { v0, v1, v2 };
+
+    raster.draw_polygon_shaded(t);
 }
 
 void GPU::gp0_mono_quad()
@@ -209,7 +227,7 @@ void GPU::gp0_texture_window_setting()
 
 void GPU::gp0_drawing_offset()
 {
-    std::cout << "GPU Drawing offset\n";
+    //std::cout << "GPU Drawing offset\n";
     state.x_offset = utility::sclip<11>(state.fifo[0] >> 0);
     state.y_offset = utility::sclip<11>(state.fifo[0] >> 11);
 }

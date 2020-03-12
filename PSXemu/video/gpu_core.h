@@ -46,6 +46,7 @@ enum GP0Command {
     Nop = 0x0,
     Clear_Cache = 0x1,
     Fill_Rect = 0x2,
+    Mono_Trig = 0x20,
     Mono_Quad = 0x28,
     Shaded_Quad_Blend = 0x2c,
     Shaded_Quad_Raw_Texture = 0x2d,
@@ -184,6 +185,7 @@ public:
     uint16_t vram_transfer();
 
     void gp0_nop();
+    void gp0_mono_trig();
     void gp0_mono_quad();
     void gp0_pixel();
     void gp0_fill_rect();

@@ -23,7 +23,7 @@ buffer CdromDisk::read(CdromPosition pos, CdromTrack::DataType& sector_type) {
   auto track = get_track_by_pos(pos);
 
   if (!track) {
-    printf("Reading failed, no disk loaded\n");
+    //printf("Reading failed, no disk loaded\n");
     sector_type = CdromTrack::DataType::Invalid;
     return {};
   }
@@ -34,7 +34,7 @@ buffer CdromDisk::read(CdromPosition pos, CdromTrack::DataType& sector_type) {
   if (track->number == 1 && track->type == CdromTrack::DataType::Data)
     pos.physical_to_logical();
 
-  printf("Reading %s track: %d pos: %d\n", track->type_to_str(), track->number, pos.to_str());
+  //printf("Reading %s track: %d pos: %d\n", track->type_to_str(), track->number, pos.to_str());
 
   const auto seek_pos = pos.to_lba() * SECTOR_SIZE;
   track->file.seekg(seek_pos);

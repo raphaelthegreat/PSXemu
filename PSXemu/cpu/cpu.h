@@ -1,9 +1,10 @@
 #pragma once
 #include <memory/bus.h>
 #include <unordered_map>
-#include <cpu/enum.h>
-#include <cpu/instr.h>
+#include "enum.h"
+#include "instr.h"
 #include "cop0.h"
+#include "gte.h"
 
 struct MEM {
     uint32_t reg = 0;
@@ -50,6 +51,8 @@ public:
 
     /* Opcodes. */
     void op_special(); void op_cop2(); void op_cop0();
+    void op_lwc2(); void op_swc2(); void op_mfc2(); void op_mtc2();
+    void op_cfc2(); void op_ctc2();
 
     /* Read/Write instructions. */
     void op_lhu(); void op_lh(); void op_lbu(); void op_sw();
@@ -102,6 +105,7 @@ public:
 
     /* Coprocessors. */
     Cop0 cop0;
+    GTE gte;
 
     MEM write_back, memory_load;
     MEM delayed_memory_load;

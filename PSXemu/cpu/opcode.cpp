@@ -11,23 +11,30 @@ void CPU::op_special()
 
 void CPU::op_cop0()
 {
-	switch ((instr.value >> 21) & 31) {
-	default: exception(ExceptionType::IllegalInstr); return;
-
-	case 0x00: op_mfc0(); return; // mfc0 rt,rd
-	case 0x04: op_mtc0(); return; // mtc0 rt,rd
-
-	case 0x10:
-		switch (instr.value & 63) {
-		default:  exception(ExceptionType::IllegalInstr); return;
-
-		case 0x10: op_rfe(); return; // rfe
-		}
+	switch (instr.rs()) {
+	case 0b00000: op_mfc0(); break;
+	case 0b00100: op_mtc0(); break;
+	case 0b10000: op_rfe(); break;
+	default: exception(ExceptionType::IllegalInstr, instr.id()); break;
 	}
 }
 
 void CPU::op_cop2()
 {
+	switch (instr.rs() & 0x10) {
+	case 0x00:
+		switch (instr.rs()) {
+		case 0b00000: op_mfc2(); break;
+		case 0b00010: op_cfc2(); break;
+		case 0b00100: op_mtc2(); break;
+		case 0b00110: op_ctc2(); break;
+		default: exception(ExceptionType::IllegalInstr, instr.id()); break;
+		}
+		break;
+	case 0x10:
+		gte.execute(instr);
+		break;
+	}
 }
 
 void CPU::register_opcodes()
@@ -62,6 +69,8 @@ void CPU::register_opcodes()
 	lookup[0b101010] = BIND_CPU(op_swl);
 	lookup[0b100010] = BIND_CPU(op_lwl);
 	lookup[0b100110] = BIND_CPU(op_lwr);
+	lookup[0b110010] = BIND_CPU(op_lwc2);
+	lookup[0b111010] = BIND_CPU(op_swc2);
 
 	special[0b000000] = BIND_CPU(op_sll);
 	special[0b100101] = BIND_CPU(op_or);

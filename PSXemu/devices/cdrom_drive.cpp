@@ -53,8 +53,8 @@ void CdromDrive::step() {
       auto sync_match = std::equal(SYNC_MAGIC.begin(), SYNC_MAGIC.end(), m_read_buf.begin());
 
       if (m_stat_code.playing && sector_has_audio) {  // Reading audio
-        if (sync_match)
-          printf("Sync data found in Audio sector\n");
+          if (sync_match)
+              printf("Sync data found in Audio sector\n");
       } else if (m_stat_code.reading && sector_has_data) {  // Reading data
         if (!sync_match)
           printf("Sync data mismach in Data sector\n");
@@ -96,7 +96,7 @@ uint8_t CdromDrive::read_reg(uint32_t addr_rebased) {
   }
 
   printf("CDROM read %s (CDREG%d.%d) val: 0x%x\n",
-                  get_reg_name(reg, reg_index, true), reg, reg_index, val);
+                 get_reg_name(reg, reg_index, true), reg, reg_index, val);
 
   return val;
 }
@@ -197,7 +197,7 @@ void CdromDrive::execute_command(uint8_t cmd) {
   m_irq_fifo.clear();
   m_resp_fifo.clear();
 
-  printf("CDROM command issued: %s (%x)\n", get_cmd_name(cmd), cmd);
+  //printf("CDROM command issued: %s (%x)\n", get_cmd_name(cmd), cmd);
 
   switch (cmd) {
     case 0x01:  // Getstat
@@ -306,7 +306,7 @@ void CdromDrive::execute_command(uint8_t cmd) {
     case 0x19: {  // Test
       const auto subfunction = get_param();
 
-      printf("  CDROM command subfuncion: %x\n", subfunction);
+      //printf("  CDROM command subfuncion: %x\n", subfunction);
 
       switch (subfunction) {
         case 0x20:  // Get CDROM BIOS date/version (yy,mm,dd,ver)
@@ -316,7 +316,7 @@ void CdromDrive::execute_command(uint8_t cmd) {
           break;
         default: {
           command_error();
-          printf("Unhandled Test subfunction %x\n", subfunction);
+          //printf("Unhandled Test subfunction %x\n", subfunction);
           break;
         }
       }
@@ -395,7 +395,7 @@ void CdromDrive::push_response(CdromResponseType type, std::initializer_list<uin
       m_resp_fifo.push_back(response_byte);
       m_reg_status.response_fifo_not_empty = true;
     } else
-      printf("CDROM response 0x%x lost, FIFO was full\n", response_byte);
+        printf("CDROM response 0x%x lost, FIFO was full\n", response_byte);
   }
 }
 

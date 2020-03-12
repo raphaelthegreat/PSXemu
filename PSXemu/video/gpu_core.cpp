@@ -118,6 +118,7 @@ void GPU::register_commands()
     gp0_lookup[Mask_Bit_Setting] = BIND(gp0_mask_bit_setting);
     gp0_lookup[Shaded_Quad_Semi_Transparent_Raw_Texture] = BIND(gp0_shaded_quad_blend);
     gp0_lookup[Mono_Rect_16] = BIND(gp0_mono_rect_16);
+    gp0_lookup[Mono_Trig] = BIND(gp0_mono_trig);
 }
 
 uint16_t GPU::vram_transfer() {

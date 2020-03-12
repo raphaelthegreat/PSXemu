@@ -31,3 +31,9 @@ T max(T l, _Ty... other)
 	T value = max(other...);
 	return (l > value ? l : value);
 }
+
+template <typename _In, typename _Lower, typename _Upper>
+inline _In clamp(_In val, _Lower lower, _Upper upper)
+{
+	return val + ((val < lower) * (lower - val)) + ((val > upper)* (upper - val));
+}

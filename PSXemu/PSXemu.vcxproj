@@ -90,6 +90,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="cpu\cpu.cpp" />
+    <ClCompile Include="cpu\gte.cpp" />
+    <ClCompile Include="cpu\gte_opcodes.cpp" />
     <ClCompile Include="cpu\opcode.cpp" />
     <ClCompile Include="cpu\util.cpp" />
     <ClCompile Include="devices\cdrom_disk.cpp" />
@@ -114,6 +116,7 @@
     <ClInclude Include="cpu\cache.h" />
     <ClInclude Include="cpu\cop0.h" />
     <ClInclude Include="cpu\enum.h" />
+    <ClInclude Include="cpu\gte.h" />
     <ClInclude Include="cpu\instr.h" />
     <ClInclude Include="cpu\utility.h" />
     <ClInclude Include="cpu\util.h" />
