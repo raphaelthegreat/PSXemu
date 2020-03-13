@@ -3,6 +3,8 @@
 #include "gpu_core.h"
 #include "vram.h"
 
+#pragma optimize("", off)
+
 static int command_size[256] = {
     1, 1, 3, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $00
     1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $10
@@ -37,6 +39,7 @@ glm::ivec3 GPU::unpack_color(uint32_t color) {
     command_size[Shaded_Quad_Semi_Transparent_Raw_Texture] = 9;
     command_size[Mono_Rect_16] = 2;
     command_size[Textured_Rect_Opaque] = 4;
+    
     glm::ivec3 result;
     result.r = (color >> 0) & 0xff;
     result.g = (color >> 8) & 0xff;
@@ -100,7 +103,6 @@ void GPU::gp0_mono_trig()
     auto v2 = create_pixel(point3, color);
 
     Triangle t = { v0, v1, v2 };
-
     raster.draw_polygon_shaded(t);
 }
 
