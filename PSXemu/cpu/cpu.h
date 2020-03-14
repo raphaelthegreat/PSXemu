@@ -33,7 +33,8 @@ public:
     void register_opcodes();
     bool handle_interrupts();
     void handle_load_delay();
-    
+    void force_test();
+
     void exception(ExceptionType cause, uint32_t cop = 0);
     void setregisters(uint32_t regN, uint32_t value);
     void delayedLoad(uint32_t regN, uint32_t value);
@@ -99,6 +100,7 @@ public:
     bool is_branch, is_delay_slot;
     bool took_branch;
     bool in_delay_slot_took_branch;
+    bool log = false;
 
     uint32_t exception_addr[2] = { 0x80000080, 0xBFC00180 };
     CacheLine instr_cache[256] = {};
@@ -114,6 +116,7 @@ public:
 
     /* Opcode lookup table. */
     std::unordered_map<uint32_t, CPUfunc> lookup, special;
+    std::unordered_map<uint32_t, std::string> str_lookup, str_special;
 };
 
 template<typename T>
@@ -126,23 +129,23 @@ template<typename T>
 inline void CPU::write(uint32_t addr, T data)
 {
     if (cop0.sr.IsC) {
-        CacheControl& cc = bus->cache_ctrl;
+        //CacheControl& cc = bus->cache_ctrl;
 
-        Address address;
-        address.raw = addr;
+        //Address address;
+        //address.raw = addr;
 
-        /* Check if caching is enabled. */
-        if (!cc.is1) {
-            return;
-        }
+        ///* Check if caching is enabled. */
+        //if (!cc.is1) {
+        //    return;
+        //}
 
-        CacheLine& line = instr_cache[address.cache_line];
+        //CacheLine& line = instr_cache[address.cache_line];
 
-        /* Invalid cache line if TAG test is enabled. */
-        if (cc.tag) /* Invalidate by pushing index out of range. */
-            line.tag.index = 4;
-        else /* Write to cache. */
-            line.instrs[address.index].value = data;
+        ///* Invalid cache line if TAG test is enabled. */
+        //if (cc.tag) /* Invalidate by pushing index out of range. */
+        //    line.tag.index = 4;
+        //else /* Write to cache. */
+        //    line.instrs[address.index].value = data;
 
         return;
     }

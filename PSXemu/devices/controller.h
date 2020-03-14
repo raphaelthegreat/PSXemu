@@ -193,6 +193,10 @@ public:
         case GLFW_KEY_X: buttons &= (uint16_t)~(buttons & (1 << 14)); break;
         case GLFW_KEY_BACKSPACE: buttons &= (uint16_t)~(buttons & (1 << 15)); break;
         case GLFW_KEY_O: buttons &= (uint16_t)~(buttons & (1 << 13)); break;
+        case GLFW_KEY_W: buttons &= (uint16_t)~(buttons & 0x1000); break;
+        case GLFW_KEY_D: buttons &= (uint16_t)~(buttons & 0x2000); break;
+        case GLFW_KEY_S: buttons &= (uint16_t)~(buttons & 0x4000); break;
+        case GLFW_KEY_A: buttons &= (uint16_t)~(buttons & 0x8000); break;
         }
     }
 
@@ -209,6 +213,10 @@ public:
         case GLFW_KEY_BACKSPACE: buttons |= (1 << 15); break;
         case GLFW_KEY_O: buttons |= (1 << 13); break;
         case GLFW_KEY_X: buttons |= (1 << 14); break;
+        case GLFW_KEY_W: buttons |= 0x1000; break;
+        case GLFW_KEY_D: buttons |= 0x2000; break;
+        case GLFW_KEY_S: buttons |= 0x4000; break;
+        case GLFW_KEY_A: buttons |= 0x8000; break;
         }
     }
 };

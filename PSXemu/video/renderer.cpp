@@ -1,5 +1,6 @@
 ﻿#include "renderer.h"
 #include <cpu/util.h>
+#include <memory/bus.h>
 #include <video/vram.h>
 
 Renderer::Renderer(int _width, int _height, std::string title)
@@ -19,6 +20,8 @@ Renderer::Renderer(int _width, int _height, std::string title)
 
 	width = _width; height = _height;
 	glfwSetFramebufferSizeCallback(window, resize_func);
+
+    debug_gui.init(window);
 
     /* Build shader */
     shader = std::make_unique<Shader>();
@@ -85,19 +88,22 @@ void Renderer::draw_scene()
     /* Update the display texture */
     screen_texture->update(&pixels.front());
     
-    /* Render draw data. */
-    shader->bind();
-    screen_texture->bind();
-    glBindVertexArray(screen_vao);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-
     pixels.clear();
 }
 
-void Renderer::update()
+void Renderer::update(Bus* bus)
 {
+    debug_gui.start();
+    
     glfwPollEvents();
     draw_scene();
+
+    debug_gui.dockspace();
+    debug_gui.cpu_regs(bus->cpu);
+    debug_gui.decompiler(bus->cpu);
+    debug_gui.viewport(screen_texture->texture_id);
+    debug_gui.display();
+
     glfwSwapBuffers(window);
     glClear(GL_COLOR_BUFFER_BIT);
 }

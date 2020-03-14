@@ -1,7 +1,7 @@
 #include "bus.h"
 #include <cpu/cpu.h>
 #include <video/renderer.h>
-#pragma optimize("", off)
+//#pragma optimize("", off)
 
 const Range SYS_CONTROL = Range(0x1f801000, 36);
 const Range RAM_SIZE = Range(0x1f801060, 4);
@@ -32,17 +32,54 @@ uint32_t Bus::physical_addr(uint32_t addr)
     return (addr & region_mask[index]);
 }
 
+std::tuple<uint32_t, uint32_t, uint32_t, uint32_t> Bus::loadEXE(std::string test) {
+	std::ifstream inFile(test, std::ios_base::binary);
+
+	inFile.seekg(0, std::ios_base::end);
+	size_t length = inFile.tellg();
+	inFile.seekg(0, std::ios_base::beg);
+
+	std::vector<uint8_t> exe;
+	exe.reserve(length);
+	std::copy(std::istreambuf_iterator<char>(inFile),
+		std::istreambuf_iterator<char>(),
+		std::back_inserter(exe));
+		
+	uint32_t PC = (uint32_t)exe[0x10];
+	uint32_t R28 = (uint32_t)exe[0x14];
+	uint32_t R29 = (uint32_t)exe[0x30];
+	uint32_t R30 = R29; //base
+	R30 += (uint32_t)exe[0x34]; //offset
+	uint32_t DestAdress = (uint32_t)exe[0x18];
+
+	for (int i = 0; i < exe.size() - 0x800; i++) {
+		uint8_t data = exe[0x800 + i];
+		ram->write<uint8_t>((DestAdress & 0x1FFFFF) + i, data);
+	}
+
+	return std::make_tuple(PC, R28, R29, R30);
+}
+
 void Bus::tick()
 {
 	if (gpu->tick(300)) {
-		gl_renderer->update();
+		gl_renderer->update(this);
 		cpu->trigger(Interrupt::VBLANK);
 	}
 
-	for (int i = 0; i < 3; i++) {
-		timers[i].tick(300);
-		timers[i].gpu_sync(gpu->in_hblank, gpu->in_vblank);
-	}
+	int dotClockDiv[] = { 10, 8, 5, 4, 7 };
+	
+	auto hr2 = gpu->state.status.hres & 0x1;
+	auto hr1 = gpu->state.status.hres >> 1;
+
+	int dot = dotClockDiv[hr2 << 2 | hr1];
+
+	auto state = std::make_tuple(dot, gpu->in_hblank, gpu->in_vblank);
+	timers.syncGPU(state);
+
+	if (timers.tick(0, 300)) irq(Interrupt::TIMER0);
+	if (timers.tick(1, 300)) irq(Interrupt::TIMER1);
+	if (timers.tick(2, 300)) irq(Interrupt::TIMER2);
 
 	controller.tick();
 	cddrive.step();
@@ -60,18 +97,20 @@ T Bus::read(uint32_t addr)
 		printf("Unaligned read at address: 0x%x\n", addr);
 		exit(0);
 	}
-
+	
 	/* Map the memory ranges. */
 	uint32_t abs_addr = physical_addr(addr);
 	if (TIMERS.contains(abs_addr)) {
-		uint8_t timer = (abs_addr >> 4) & 3;
-		return timers[timer].read(abs_addr);
+		return timers.read<T>(abs_addr);
 	}
 	else if (RAM.contains(abs_addr)) {
 		return ram->read<T>(abs_addr);
 	}
 	else if (BIOS.contains(abs_addr)) {
 		return bios->read<T>(abs_addr);
+	}
+	else if (SCRATCHPAD.contains(abs_addr)) {
+		return 0;
 	}
 	else if (EXPANSION_1.contains(abs_addr)) {
 		return 0xff;
@@ -100,7 +139,7 @@ T Bus::read(uint32_t addr)
 	}
 
 	printf("Unhandled read to address: 0x%x\n", addr);
-	exit(0);
+	//exit(0);
 	return 0;
 }
 
@@ -115,8 +154,7 @@ void Bus::write(uint32_t addr, T data)
 	/* Map the memory ranges. */
 	uint32_t abs_addr = physical_addr(addr);
 	if (TIMERS.contains(abs_addr)) {
-		uint8_t timer = (abs_addr >> 4) & 3;
-		return timers[timer].write(abs_addr, data);
+		return timers.write<T>(abs_addr, data);
 	}
 	else if (EXPANSION_2.contains(abs_addr)) {
 		return;
@@ -129,6 +167,9 @@ void Bus::write(uint32_t addr, T data)
 	}
 	else if (PAD_MEMCARD.contains(abs_addr)) {
 		return controller.write<T>(abs_addr, data);
+	}
+	else if (SCRATCHPAD.contains(abs_addr)) {
+		return /*scratchpad.write<T>(abs_addr, data)*/;
 	}
 	else if (CDROM.contains(abs_addr)) {
 		if (std::is_same<T, uint8_t>::value)
@@ -154,7 +195,7 @@ void Bus::write(uint32_t addr, T data)
 	}
 
 	printf("Unhandled write to address: 0x%x\n", addr);
-	exit(0);
+	//exit(0);
 }
 
 /* Template definitions. */

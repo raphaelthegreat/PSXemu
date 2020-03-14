@@ -49,7 +49,7 @@ void GPU::gp1(uint32_t data) {
         break;
 
     default:
-        printf("unhandled gp1 command: 0x%08x\n", data);
+        printf("unhandled gp1 command: 0x%08x\n", (data >> 24) & 0x3f);
         break;
     }
 }

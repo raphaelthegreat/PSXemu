@@ -5,26 +5,24 @@
 
 #pragma optimize("", off)
 
-static int command_size[256] = {
-    1, 1, 3, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $00
-    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $10
-    4, 1, 1, 1,  1, 1, 1, 1,  5, 1, 1, 1,  9, 9, 1, 1, // $20
-    6, 1, 1, 1,  1, 1, 1, 1,  8, 1, 1, 1,  1, 1, 1, 1, // $30
-
-    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $40
-    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $50
-    1, 1, 1, 1,  1, 4, 1, 1,  2, 1, 1, 1,  1, 1, 1, 1, // $60
-    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $70
-
-    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $80
-    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $90
-    3, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $a0
-    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $b0
-
-    3, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $c0
-    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $d0
-    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $e0
-    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, // $f0
+static int command_size[] = {
+    //0  1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
+     1,  1,  3,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1, //0
+     1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1, //1
+     4,  4,  4,  4,  7,  7,  7,  7,  5,  5,  5,  5,  9,  9,  9,  9, //2
+     6,  6,  6,  6,  9,  9,  9,  9,  8,  8,  8,  8, 12, 12, 12, 12, //3
+     3,  3,  3,  3,  3,  3,  3,  3, 16, 16, 16, 16, 16, 16, 16, 16, //4
+     4,  4,  4,  4,  4,  4,  4,  4, 16, 16, 16, 16, 16, 16, 16, 16, //5
+     3,  3,  3,  1,  4,  4,  4,  4,  2,  1,  2,  1,  3,  3,  3,  3, //6
+     2,  1,  2,  1,  3,  3,  3,  3,  2,  1,  2,  2,  3,  3,  3,  3, //7
+     4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4, //8
+     4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4, //9
+     3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3, //A
+     3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3, //B
+     3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3, //C
+     3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3, //D
+     1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1, //E
+     1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1  //F
 };
 
 glm::ivec2 GPU::unpack_point(uint32_t point) {
@@ -35,11 +33,7 @@ glm::ivec2 GPU::unpack_point(uint32_t point) {
     return result;
 }
 
-glm::ivec3 GPU::unpack_color(uint32_t color) {
-    command_size[Shaded_Quad_Semi_Transparent_Raw_Texture] = 9;
-    command_size[Mono_Rect_16] = 2;
-    command_size[Textured_Rect_Opaque] = 4;
-    
+glm::ivec3 GPU::unpack_color(uint32_t color) {    
     glm::ivec3 result;
     result.r = (color >> 0) & 0xff;
     result.g = (color >> 8) & 0xff;
@@ -74,11 +68,12 @@ void GPU::gp0(uint32_t data) {
 
     if (state.fifo.size() == command_size[command]) {      
         auto& handler = gp0_lookup[command];
+        
         if (handler != nullptr)
             handler();
         else {
-            std::cout << "Unahndled GP0 command: 0x" << std::hex << command << '\n';
-            __debugbreak();
+           std::cout << "Unahndled GP0 command: 0x" << std::hex << command << '\n';
+           exit(0);
         }
         
         state.fifo.clear();
@@ -166,20 +161,16 @@ void GPU::gp0_textured_rect_opaque()
     auto clut_x = ((coord >> 16) & 0x3f) * 16;
     auto clut_y = ((coord >> 22) & 0x1ff);
     
-    std::string s;
     for (int y = 0; y < point2.y; y++) {
         for (int x = 0; x < point2.x; x++) {
             auto texel = vram.read(base_u + (x / 4), base_v + y);
             int index = (texel >> 4 * (x & 3)) & 0xf;
-            s.append(std::to_string(state.y_offset) + '\n');
             auto color = vram.read(clut_x + index, clut_y);
             vram.write(point1.x + x,
                 point1.y + y,
                 color);
         }
     }
-
-    //std::cout << s;
 }
 
 void GPU::gp0_draw_mode()
@@ -288,6 +279,51 @@ void GPU::gp0_mono_rect_16()
     }
 }
 
+void GPU::gp0_mono_rect()
+{
+    auto color = state.fifo[0];
+    auto point1 = state.fifo[1];
+    auto width_height = state.fifo[2];
+
+    auto wh = unpack_point(width_height);
+    auto v0 = create_pixel(point1, color);
+    Pixel v1 = { v0.point + glm::ivec2(wh.x, 0), v0.color };
+    Pixel v2 = { v0.point + glm::ivec2(0, wh.y), v0.color };
+    Pixel v3 = { v0.point + glm::ivec2(wh.x, wh.y), v0.color };
+
+    Quad q = { v0, v1, v2, v3 };
+    raster.draw_polygon_shaded(q);
+}
+
+void GPU::gp0_textured_rect_transparent()
+{
+    auto color = unpack_color(state.fifo[0]);
+    auto point1 = unpack_point(state.fifo[1]);
+    auto coord = state.fifo[2];
+    auto point2 = unpack_point(state.fifo[3]);
+
+    auto base_u = ((state.status.raw >> 0) & 0xf) * 64;
+    auto base_v = ((state.status.raw >> 4) & 0x1) * 256;
+
+    auto clut_x = ((coord >> 16) & 0x3f) * 16;
+    auto clut_y = ((coord >> 22) & 0x1ff);
+
+    for (int y = 0; y < point2.y; y++) {
+        for (int x = 0; x < point2.x; x++) {
+            auto texel = vram.read(base_u + (x / 4), base_v + y);
+            int index = (texel >> 4 * (x & 3)) & 0xf;
+       
+            auto color = vram.read(clut_x + index, clut_y);
+            
+            if (color != 0) {
+                vram.write(point1.x + x,
+                    point1.y + y,
+                    color);
+            }
+        }
+    }
+}
+
 void GPU::gp0_shaded_quad()
 {
     //std::cout << "GPU Shaded quad\n";
@@ -382,4 +418,34 @@ void GPU::gp0_shaded_trig()
     Triangle trig = { v0, v1, v2 };
 
     raster.draw_polygon_shaded(trig);
+}
+
+void GPU::gp0_shaded_textured_quad_blend()
+{
+    auto color = state.fifo[0];
+    auto point1 = state.fifo[1];
+    auto coord1 = state.fifo[2];
+    auto color2 = state.fifo[3];
+    auto point2 = state.fifo[4];
+    auto coord2 = state.fifo[5];
+    auto color3 = state.fifo[6];
+    auto point3 = state.fifo[7];
+    auto coord3 = state.fifo[8];
+    auto color4 = state.fifo[9];
+    auto point4 = state.fifo[10];
+    auto coord4 = state.fifo[11];
+
+    Quad q;
+
+    q.point[0] = create_pixel(point1, color, coord1);
+    q.point[1] = create_pixel(point2, color, coord2);
+    q.point[2] = create_pixel(point3, color, coord3);
+    q.point[3] = create_pixel(point4, color, coord4);
+    q.clut_x = ((coord1 >> 16) & 0x03f) * 16;
+    q.clut_y = ((coord1 >> 22) & 0x1ff) * 1;
+    q.base_u = ((coord2 >> 16) & 0x00f) * 64;
+    q.base_v = ((coord2 >> 20) & 0x001) * 256;
+    q.depth = ((coord2 >> 23) & 0x003);
+
+    raster.draw_polygon_textured(q);
 }

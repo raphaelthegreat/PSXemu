@@ -107,7 +107,7 @@ void GPU::register_commands()
     gp0_lookup[Shaded_Quad_Raw_Texture] = BIND(gp0_shaded_quad_blend);
     gp0_lookup[Shaded_Triangle] = BIND(gp0_shaded_trig);
     gp0_lookup[Mono_Quad_Dot] = BIND(gp0_pixel);
-    gp0_lookup[Textured_Rect_Opaque] = BIND(/*gp0_textured_rect_opaque*/gp0_nop);
+    gp0_lookup[Textured_Rect_Opaque] = BIND(gp0_textured_rect_opaque);
     gp0_lookup[Image_Load] = BIND(gp0_image_load);
     gp0_lookup[Image_Store] = BIND(gp0_image_store);
     gp0_lookup[Texture_Window_Setting] = BIND(gp0_texture_window_setting);
@@ -119,6 +119,9 @@ void GPU::register_commands()
     gp0_lookup[Shaded_Quad_Semi_Transparent_Raw_Texture] = BIND(gp0_shaded_quad_blend);
     gp0_lookup[Mono_Rect_16] = BIND(gp0_mono_rect_16);
     gp0_lookup[Mono_Trig] = BIND(gp0_mono_trig);
+    gp0_lookup[Shaded_Textured_Quad_Blend] = BIND(gp0_shaded_textured_quad_blend);
+    gp0_lookup[Mono_Rect] = BIND(gp0_mono_rect);
+    gp0_lookup[Textured_Rect_Semi_Transparent] = BIND(gp0_textured_rect_transparent);
 }
 
 uint16_t GPU::vram_transfer() {

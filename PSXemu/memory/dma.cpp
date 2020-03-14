@@ -4,8 +4,6 @@
 #include <cpu/util.h>
 #include <memory/bus.h>
 
-//#pragma optimize("", off)
-
 /* DMA Controller class implementation. */
 DMAController::DMAController(Bus* _bus)
 {
@@ -16,27 +14,29 @@ DMAController::DMAController(Bus* _bus)
 
 void DMAController::tick()
 {
-	
+	if (irq_pending) {
+		irq_pending = false;
+		__debugbreak();
+		bus->irq(Interrupt::DMA);
+	}
 }
 
 bool DMAController::is_channel_enabled(DMAChannels channel)
 {
-	return (irq.raw & (1 << (16 + (uint8_t)channel))) || irq.master_enable;;
+	return (irq.raw & (1 << (16 + (uint8_t)channel))) || irq.master_enable;
 }
 
 void DMAController::transfer_finished(DMAChannels channel)
 {
-	bool is_enabled = is_channel_enabled(channel);
+	if ((irq.enable & (1 << (int)channel)) != 0) {
+		irq.enable |= (uint32_t)(1 << (int)channel);
+	}
 
-	if (is_enabled) {
-
-		std::bitset<32> bs(irq.raw);
-		bs.set((uint8_t)channel + 24, true);
-		irq.raw = bs.to_ulong();
-
-		uint8_t all_enable = (irq.raw & 0x7F0000) >> 16;
-		uint8_t all_flag = (irq.raw & 0x7F000000) >> 24;
-		irq_pending = irq.force || (irq.master_enable && (all_enable & all_flag));
+	bool prevMasterFlag = irq.master_flag;
+	irq.master_flag = irq.force || (irq.master_enable && ((irq.enable & irq.flags) > 0));
+	
+	if (irq.master_flag && !prevMasterFlag && channel == DMAChannels::OTC) {
+		irq_pending = true;
 	}
 }
 
@@ -49,6 +49,8 @@ void DMAController::start(DMAChannels dma_channel)
 	else
 		/* Start block copy routine. */
 		block_copy(dma_channel);
+
+
 }
 
 void DMAController::block_copy(DMAChannels dma_channel)
@@ -145,7 +147,6 @@ void DMAController::block_copy(DMAChannels dma_channel)
 	/* Complete DMA Transfer */
 	channel.control.enable = false;
 	channel.control.trigger = false;
-	transfer_finished(dma_channel);
 }
 
 void DMAController::list_copy(DMAChannels dma_channel)
@@ -194,7 +195,6 @@ void DMAController::list_copy(DMAChannels dma_channel)
 	/* Complete DMA Transfer */
 	channel.control.enable = false;
 	channel.control.trigger = false;
-	transfer_finished(dma_channel);
 }
 
 uint32_t DMAController::read(uint32_t address)

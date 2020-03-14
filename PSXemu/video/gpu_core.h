@@ -53,7 +53,10 @@ enum GP0Command {
     Shaded_Quad_Semi_Transparent_Raw_Texture = 0x2f,
     Shaded_Triangle = 0x30,
     Shaded_Quad = 0x38,
+    Shaded_Textured_Quad_Blend = 0x3c,
+    Mono_Rect = 0x60,
     Textured_Rect_Opaque = 0x65,
+    Textured_Rect_Semi_Transparent = 0x66,
     Mono_Quad_Dot = 0x68,
     Mono_Rect_16 = 0x78,
     Image_Load = 0xa0,
@@ -200,10 +203,13 @@ public:
     void gp0_image_load();
     void gp0_image_store();
     void gp0_mono_rect_16();
+    void gp0_mono_rect();
+    void gp0_textured_rect_transparent();
     void gp0_shaded_quad();
     void gp0_shaded_quad_blend();
     void gp0_shaded_quad_transparent();
     void gp0_shaded_trig();
+    void gp0_shaded_textured_quad_blend();
 
 public:
     Rasterizer raster;

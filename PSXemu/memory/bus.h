@@ -5,6 +5,7 @@
 
 #include <memory/bios.h>
 #include <memory/range.h>
+#include <memory/scratchpad.h>
 #include <memory/ram.h>
 #include <memory/dma.h>
 
@@ -27,6 +28,7 @@ public:
 	~Bus() = default;
 
 	void tick();
+	std::tuple<uint32_t, uint32_t, uint32_t, uint32_t> loadEXE(std::string test);
 
 	template <typename T = uint32_t>
 	T read(uint32_t addr);
@@ -45,17 +47,14 @@ public:
 	DMAController dma;
 	JOYPAD controller;
 	CacheControl cache_ctrl;
+	Scratchpad scratchpad;
 	io::CdromDrive cddrive;
 
 	Renderer* gl_renderer;
 	GPU* gpu;
 	CPU* cpu;
 
-	Timer timers[3] = {
-		{ TimerID::TMR0, this },
-		{ TimerID::TMR1, this },
-		{ TimerID::TMR2, this }
-	};
+	TIMERS timers;
 
 	const uint32_t region_mask[8] = {
 		0xffffffff, 0xffffffff,

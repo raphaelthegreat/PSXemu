@@ -1,6 +1,5 @@
 #include "vram.h"
-
-//#pragma optimize("", off)
+#include <cstdlib>
 
 uint16_t* VRAM::get()
 {
@@ -15,10 +14,8 @@ uint16_t VRAM::read(int x, int y)
 
 void VRAM::write(int x, int y, uint16_t data)
 {
-	if (x < 0 || x > 0x400) return;
-	if (y < 0 || y > 0x200) return;
-
-	//if (x == 644 && y == 0) __debugbreak();
+	if (x < 0 || x > 0x400) exit(0);
+	if (y < 0 || y > 0x200) exit(0);
 
 	vram.halfword[(y * 1024) + x] = data;
 }

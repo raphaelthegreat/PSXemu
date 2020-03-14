@@ -33,99 +33,61 @@ union Vec3i16 {
 	auto& operator[](int idx) { return vector[idx]; }
 };
 
-union Matrix {
-	glm::i16mat3 matrix;
-
-	struct {
-		uint32_t R11R12;
-		uint32_t R13R21;
-		uint32_t R22R23;
-		uint32_t R13R23;
-		int16_t R33; 
-		int16_t : 16;
-	};
-
-	auto& operator[](int idx) { return matrix[idx]; }
+struct Matrix {
+	Vec3i16 v1, v2, v3;
 };
 
 /* GTE Flag register. */
-union FLAG {
-	uint32_t raw;
 
-	struct {
-		uint32_t : 12;
-		uint32_t ir0_saturated : 1;
-		uint32_t sy2_saturated : 1;
-		uint32_t sx2_saturated : 1;
-		uint32_t mac0_negative : 1;
-		uint32_t mac0_positive : 1;
-		uint32_t divide_overflow : 1;
-		uint32_t sz3_otz_saturated : 1;
-		uint32_t color_b_saturated : 1;
-		uint32_t color_g_saturated : 1;
-		uint32_t color_r_saturated : 1;
-		uint32_t ir3_saturated : 1;
-		uint32_t ir2_saturated : 1;
-		uint32_t ir1_saturated : 1;
-		uint32_t mac3_negative : 1;
-		uint32_t mac2_negative : 1;
-		uint32_t mac1_negative : 1;
-		uint32_t mac3_positive : 1;
-		uint32_t mac2_positive : 1;
-		uint32_t mac1_positive : 1;
-		uint32_t error_flag : 1;
-	};
-};
-
-union GTEControl {
-	uint32_t reg[32] = {};
-
-	struct {
-		Matrix rotation;
-		glm::ivec3 translation;
-		Matrix light_src;
-		glm::ivec3 bg_color;
-		Matrix light_color;
-		glm::ivec3 far_color;
-		glm::ivec2 screen_offset;
-		uint16_t proj_dist; uint16_t : 16;
-		uint32_t dqa;
-		uint32_t dqb;
-		int16_t zsf3;
-		int16_t : 16; /* Padding */
-		int16_t zsf4;
-		int16_t : 16; /* Padding */
-		FLAG flag;
-	};
-};
-
-union GTEData {
-	uint32_t reg[32] = {};
-
-	struct {
-		Vec3i16 v[3];
-		Color color;
-		uint16_t otz; uint16_t : 16; /* Padding */
-		int16_t ir0; uint16_t : 16; /* Padding */
-		int16_t ir1; int16_t : 16; /* Padding */
-		int16_t ir2; int16_t : 16; /* Padding */
-		int16_t ir3; int16_t : 16; /* Padding */
-		Vec2i16 sxy[4];
-		uint16_t sz0; uint16_t : 16;
-		uint16_t sz1; uint16_t : 16;
-		uint16_t sz2; uint16_t : 16;
-		uint16_t sz3; uint16_t : 16;
-		Color rgb[3];
-		Color res1;
-		int32_t mac0;
-		glm::ivec3 macvec;
-		uint32_t irgb : 15;
-		uint32_t : 17; /* Padding */
-		uint32_t orgb : 15;
-		uint32_t : 17; /* Padding */
-		glm::ivec2 lzc;
-	};
-};
+//union GTEControl {
+//	uint32_t reg[32] = {};
+//
+//	struct {
+//		Matrix rotation;
+//		glm::ivec3 translation;
+//		Matrix light_src;
+//		glm::ivec3 bg_color;
+//		Matrix light_color;
+//		glm::ivec3 far_color;
+//		glm::ivec2 screen_offset;
+//		uint16_t proj_dist; uint16_t : 16;
+//		uint32_t dqa;
+//		uint32_t dqb;
+//		int16_t zsf3;
+//		int16_t : 16; /* Padding */
+//		int16_t zsf4;
+//		int16_t : 16; /* Padding */
+//		FLAG flag;
+//	};
+//};
+//
+//union GTEData {
+//	uint32_t reg[32] = {};
+//
+//	struct {
+//		Vec3i16 vec0, vec1, vec2;
+//		Color color;
+//		uint16_t otz; uint16_t : 16; /* Padding */
+//		int16_t ir0; uint16_t : 16; /* Padding */
+//		int16_t ir1; int16_t : 16; /* Padding */
+//		int16_t ir2; int16_t : 16; /* Padding */
+//		int16_t ir3; int16_t : 16; /* Padding */
+//		glm::vec<4, IntXY> sxy;
+//		uint16_t sz0; uint16_t : 16;
+//		uint16_t sz1; uint16_t : 16;
+//		uint16_t sz2; uint16_t : 16;
+//		uint16_t sz3; uint16_t : 16;
+//		Color rgb0, rgb1, rgb2;
+//		Color res1;
+//		int32_t mac0;
+//		glm::ivec3 macvec;
+//		uint32_t irgb : 15;
+//		uint32_t : 17; /* Padding */
+//		uint32_t orgb : 15;
+//		uint32_t : 17; /* Padding */
+//		glm::ivec2 lzc;
+//	};
+//};
 
 /* GTE Command encoder. */
 union GTECommand {
@@ -191,9 +153,37 @@ public:
 
 public:
 	CPU* cpu;
-	GTEData data;
-	GTEControl control;
+
+	Vec3i16 V[3];   //R0-1 R2-3 R4-5 s16
+	Color RGBC;                     //R6
+	uint16_t OTZ;                     //R7
+	short IR[4];      //R8-11
+	Vec2i16 SXY[4]; //R12-15 FIFO
+	uint16_t SZ[4];    //R16-19 FIFO
+	Color RGB[3];     //R20-22 FIFO
+	uint32_t RES1;                      //R23 prohibited
+	int MAC0;                       //R24
+	int MAC1, MAC2, MAC3;           //R25-27
+	uint16_t IRGB;//, ORGB;           //R28-29 Orgb is readonly and read by irgb
+	int LZCS, LZCR;                 //R30-31
+
+	//Control Registers
+	Matrix RT, LM, LRGB;        //R32-36 R40-44 R48-52
+	int TRX, TRY, TRZ;          //R37-39
+	int RBK, GBK, BBK;          //R45-47
+	int RFC, GFC, BFC;          //R53-55
+	int OFX, OFY, DQB;          //R56 57 60
+	uint16_t H;                   //R58
+	short ZSF3, ZSF4, DQA;      //R61 62 59
+	uint32_t FLAG;
+
+	int sf;                     //Shift fraction (0 or 12)
+	uint32_t MVMVA_M_Matrix;         //MVMVA Multiply Matrix    (0=Rotation. 1=Light, 2=Color, 3=Reserved)
+	uint32_t MVMVA_M_Vector;         //MVMVA Multiply Vector    (0=V0, 1=V1, 2=V2, 3=IR/long)
+	uint32_t MVMVA_T_Vector;         //MVMVA Translation Vector (0=TR, 1=BK, 2=FC/Bugged, 3=None)
+	bool lm;                     //Saturate IR1,IR2,IR3 result (0=To -8000h..+7FFFh, 1=To 0..+7FFFh)
+	uint32_t opcode;
 
 	std::unordered_map<uint32_t, GTEFunc> lookup;
-	GTECommand command;
+	//GTECommand command;
 };

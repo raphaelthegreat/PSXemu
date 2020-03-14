@@ -110,6 +110,5 @@ public:
 	DMAChannel channels[7];
 
 	bool irq_pending = false;
-
 	Bus* bus;
 };

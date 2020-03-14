@@ -34,8 +34,13 @@ void PSX::key_callback(GLFWwindow* window, int key, int scancode, int action, in
 {
 	Bus* bus = (Bus*)glfwGetWindowUserPointer(window);
 	
-	if (action == GLFW_PRESS)
+	if (action == GLFW_PRESS) {
 		bus->controller.controller.handleJoyPadDown(key);
-	else if (action == GLFW_RELEASE)
+		
+		if (key == GLFW_KEY_TAB)
+			bus->gl_renderer->debug_gui.display_vram = !bus->gl_renderer->debug_gui.display_vram;
+	}
+	else if (action == GLFW_RELEASE) {
 		bus->controller.controller.handleJoyPadUp(key);
+	}
 }

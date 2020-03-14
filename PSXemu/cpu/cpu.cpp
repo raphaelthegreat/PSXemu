@@ -1,5 +1,7 @@
 #include "cpu.h"
 
+#pragma optimize("", off)
+
 static inline uint32_t overflow_check(uint32_t x, uint32_t y, uint32_t z) {
     return (~(x ^ y) & (x ^ z) & 0x80000000);
 }
@@ -33,7 +35,6 @@ void CPU::tick()
         printf("0x%x\n", instr.opcode());
         exit(0);
     }
-         
 
     /* Apply pending load delays. */
     handle_load_delay();
@@ -93,7 +94,7 @@ void CPU::fetch()
     addr.raw = pc;
 
     bool kseg1 = KSEG1.contains(pc);
-    if (!kseg1 && cc.is1) {
+    if (/*!kseg1 && cc.is1*/false) {
 
         /* Fetch cache line and check it's validity. */
         CacheLine& line = instr_cache[addr.cache_line];
@@ -175,7 +176,7 @@ void CPU::exception(ExceptionType code, uint32_t cop)
 
     uint32_t copy = cop0.cause.raw & 0xff00;
     cop0.cause.exc_code = (uint32_t)code;
-    //cop0.cause.CE = cop;
+    cop0.cause.CE = cop;
 
     if (code == ExceptionType::Interrupt) {
         cop0.epc = pc;
@@ -198,6 +199,9 @@ void CPU::exception(ExceptionType code, uint32_t cop)
         }
     }
     
+    is_delay_slot = false;
+    in_delay_slot_took_branch = false;
+
     pc = exception_addr[cop0.sr.BEV];
     next_pc = pc + 4;
 }
@@ -214,6 +218,20 @@ void CPU::handle_load_delay()
     registers[write_back.reg] = write_back.value;
     write_back.reg = 0;
     registers[0] = 0;
+}
+
+void CPU::force_test()
+{
+    if (pc == 0x80030000) {
+        auto info = bus->ram->executable();
+        
+        pc = info.pc;
+        next_pc = pc + 4;
+        
+        registers[28] = info.r28;
+        registers[29] = info.r29_r30;
+        registers[30] = info.r29_r30;
+    }
 }
 
 void CPU::op_bcond()
@@ -513,16 +531,16 @@ void CPU::op_mfhi()
 
 void CPU::op_divu()
 {
-    auto dividend = registers[instr.rs()];
-    auto divisor = registers[instr.rt()];
+    uint32_t n = registers[instr.rs()];
+    uint32_t d = registers[instr.rt()];
 
-    if (divisor) {
-        lo = dividend / divisor;
-        hi = dividend % divisor;
+    if (d == 0) {
+        hi = n;
+        lo = 0xFFFFFFFF;
     }
     else {
-        lo = 0xffffffff;
-        hi = dividend;
+        hi = n % d;
+        lo = n / d;
     }
 }
 
@@ -544,24 +562,25 @@ void CPU::op_mflo()
 
 void CPU::op_div()
 {
-    auto dividend = int32_t(registers[instr.rs()]);
-    auto divisor = int32_t(registers[instr.rt()]);
+    int n = (int)registers[instr.rs()];
+    int d = (int)registers[instr.rt()];
 
-    if (dividend == 0x80000000 && divisor == 0xffffffff) {
-        lo = 0x80000000;
+    if (d == 0) {
+        hi = (uint32_t)n;
+        if (n >= 0) {
+            lo = 0xFFFFFFFF;
+        }
+        else {
+            lo = 1;
+        }
+    }
+    else if ((uint32_t)n == 0x80000000 && d == -1) {
         hi = 0;
-    }
-    else if (dividend >= 0 && divisor == 0) {
-        lo = uint32_t(0xffffffff);
-        hi = uint32_t(dividend);
-    }
-    else if (dividend <= 0 && divisor == 0) {
-        lo = uint32_t(0x00000001);
-        hi = uint32_t(dividend);
+        lo = 0x80000000;
     }
     else {
-        lo = uint32_t(dividend / divisor);
-        hi = uint32_t(dividend % divisor);
+        hi = (uint32_t)(n % d);
+        lo = (uint32_t)(n / d);
     }
 }
 
