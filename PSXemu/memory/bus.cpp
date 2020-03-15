@@ -64,15 +64,12 @@ void Bus::tick()
 {
 	if (gpu->tick(300)) {
 		gl_renderer->update(this);
-		cpu->trigger(Interrupt::VBLANK);
+		irq(Interrupt::VBLANK);
 	}
 
 	int dotClockDiv[] = { 10, 8, 5, 4, 7 };
-	
-	auto hr2 = gpu->state.status.hres & 0x1;
-	auto hr1 = gpu->state.status.hres >> 1;
 
-	int dot = dotClockDiv[hr2 << 2 | hr1];
+	int dot = dotClockDiv[gpu->state.status.hres];
 
 	auto state = std::make_tuple(dot, gpu->in_hblank, gpu->in_vblank);
 	timers.syncGPU(state);
@@ -169,7 +166,7 @@ void Bus::write(uint32_t addr, T data)
 		return controller.write<T>(abs_addr, data);
 	}
 	else if (SCRATCHPAD.contains(abs_addr)) {
-		return /*scratchpad.write<T>(abs_addr, data)*/;
+		return scratchpad.write<T>(abs_addr, data);
 	}
 	else if (CDROM.contains(abs_addr)) {
 		if (std::is_same<T, uint8_t>::value)

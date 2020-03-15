@@ -170,7 +170,6 @@ public:
                 counterValue += dot; //DotClock
                 cycles = 0;
             }
-
             return handleIrq();
 
         case 1:

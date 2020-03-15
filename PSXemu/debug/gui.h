@@ -24,5 +24,5 @@ public:
 	GLFWwindow* window;
 	std::ofstream log;
 	bool should_log = false;
-	bool display_vram = false;
+	bool display_vram = true;
 };
