@@ -149,6 +149,7 @@
     <ClInclude Include="video\vram.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Bust-a-Move2.bin" />
     <None Include="Crash_Bandicoot.bin" />
     <None Include="imgui.ini" />
     <None Include="SCPH1001.BIN" />

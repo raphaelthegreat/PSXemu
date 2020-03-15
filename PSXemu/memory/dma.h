@@ -25,18 +25,18 @@ union DMAControlReg {
 	struct {
 		uint32_t trans_dir : 1;
 		uint32_t addr_step : 1;
-		uint32_t reserved : 6;
+		uint32_t : 6;
 		uint32_t chop_enable : 1;
 		SyncType sync_mode : 2;
-		uint32_t reserved2 : 5;
+		uint32_t : 5;
 		uint32_t chop_dma : 3;
-		uint32_t reserved3 : 1;
+		uint32_t : 1;
 		uint32_t chop_cpu : 3;
-		uint32_t reserved4 : 1;
+		uint32_t : 1;
 		uint32_t enable : 1;
-		uint32_t reserved5 : 3;
+		uint32_t : 3;
 		uint32_t trigger : 1;
-		uint32_t unknown : 3;
+		uint32_t : 3;
 	};
 };
 
@@ -57,6 +57,8 @@ struct DMAChannel {
 	DMAControlReg control;
 	DMABlockReg block;
 	DMAMemReg base;
+
+	bool irq_pending = false;
 };
 
 /* DMA Interrupt Register. */
@@ -64,8 +66,7 @@ union DMAIRQReg {
 	uint32_t raw;
 
 	struct {
-		uint32_t unknown : 6;
-		uint32_t not_used : 9;
+		uint32_t : 15;
 		uint32_t force : 1;
 		uint32_t enable : 7;
 		uint32_t master_enable : 1;
@@ -94,7 +95,6 @@ public:
 	DMAController(Bus* bus);
 
 	void tick();
-	bool is_channel_enabled(DMAChannels channel);
 	void transfer_finished(DMAChannels channel);
 
 	void start(DMAChannels channel);
@@ -108,7 +108,5 @@ public:
 	DMAControl control;
 	DMAIRQReg irq;
 	DMAChannel channels[7];
-
-	bool irq_pending = false;
 	Bus* bus;
 };
