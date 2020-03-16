@@ -53,41 +53,35 @@ uint32_t GTE::read_control(uint32_t reg)
 
 void GTE::interpolate(int32_t mac1, int32_t mac2, int32_t mac3)
 {
-    MAC1 = (int)(set_mac_flag(1, ((int64_t)RFC << 12) - mac1) >> sf * 12);
-    MAC2 = (int)(set_mac_flag(2, ((int64_t)GFC << 12) - mac2) >> sf * 12);
-    MAC3 = (int)(set_mac_flag(3, ((int64_t)BFC << 12) - mac3) >> sf * 12);
+    MAC1 = (int)(set_mac_flag(1, ((int64_t)RFC << 12) - mac1) >> command.sf * 12);
+    MAC2 = (int)(set_mac_flag(2, ((int64_t)GFC << 12) - mac2) >> command.sf * 12);
+    MAC3 = (int)(set_mac_flag(3, ((int64_t)BFC << 12) - mac3) >> command.sf * 12);
 
     IR[1] = set_ir_flag(1, MAC1, false);
     IR[2] = set_ir_flag(2, MAC2, false);
     IR[3] = set_ir_flag(3, MAC3, false);
 
-    MAC1 = (int)(set_mac_flag(1, ((int64_t)IR[1] * IR[0]) + mac1) >> sf * 12);
-    MAC2 = (int)(set_mac_flag(2, ((int64_t)IR[2] * IR[0]) + mac2) >> sf * 12);
-    MAC3 = (int)(set_mac_flag(3, ((int64_t)IR[3] * IR[0]) + mac3) >> sf * 12);
+    MAC1 = (int)(set_mac_flag(1, ((int64_t)IR[1] * IR[0]) + mac1) >> command.sf * 12);
+    MAC2 = (int)(set_mac_flag(2, ((int64_t)IR[2] * IR[0]) + mac2) >> command.sf * 12);
+    MAC3 = (int)(set_mac_flag(3, ((int64_t)IR[3] * IR[0]) + mac3) >> command.sf * 12);
 
-    IR[1] = set_ir_flag(1, MAC1, lm);
-    IR[2] = set_ir_flag(2, MAC2, lm);
-    IR[3] = set_ir_flag(3, MAC3, lm);
+    IR[1] = set_ir_flag(1, MAC1, command.lm);
+    IR[2] = set_ir_flag(2, MAC2, command.lm);
+    IR[3] = set_ir_flag(3, MAC3, command.lm);
 }
 
 void GTE::execute(Instr instr)
 {
     /* Convert to GTE command format. */
-    uint32_t command = instr.value;
+    command.raw = instr.value;
 
-    sf = (int)(command & 0x80000) >> 19;
-    MVMVA_M_Matrix = (command >> 17) & 0x3;
-    MVMVA_M_Vector = (command >> 15) & 0x3;
-    MVMVA_T_Vector = (command >> 13) & 0x3;
-    lm = ((command >> 10) & 0x1) != 0;
-    opcode = command & 0x3F;
-
-    auto& handler = lookup[opcode];
+    auto& handler = lookup[command.opcode];
     
     if (handler != nullptr)
         handler();
-    else
-        __debugbreak();
+    else {
+        std::cout << "Unhandled GTE command: 0x" << std::hex << command.opcode << '\n';
+    }
 }
 
 uint32_t GTE::read_data(uint32_t reg)
@@ -357,20 +351,20 @@ void GTE::op_rtps()
 void GTE::op_rtpt()
 {
     for (int i = 0; i < 3; i++) {
-        MAC1 = (int)set_mac_flag(1, (TRX * 0x1000 + RT.v1.x * V[i].x + RT.v1.y * V[i].y + RT.v1.z * V[i].z) >> (sf * 12));
-        MAC2 = (int)set_mac_flag(2, (TRY * 0x1000 + RT.v2.x * V[i].x + RT.v2.y * V[i].y + RT.v2.z * V[i].z) >> (sf * 12));
-        MAC3 = (int)set_mac_flag(3, (TRZ * 0x1000 + RT.v3.x * V[i].x + RT.v3.y * V[i].y + RT.v3.z * V[i].z) >> (sf * 12));
+        MAC1 = (int)set_mac_flag(1, (TRX * 0x1000 + RT.v1.x * V[i].x + RT.v1.y * V[i].y + RT.v1.z * V[i].z) >> (command.sf * 12));
+        MAC2 = (int)set_mac_flag(2, (TRY * 0x1000 + RT.v2.x * V[i].x + RT.v2.y * V[i].y + RT.v2.z * V[i].z) >> (command.sf * 12));
+        MAC3 = (int)set_mac_flag(3, (TRZ * 0x1000 + RT.v3.x * V[i].x + RT.v3.y * V[i].y + RT.v3.z * V[i].z) >> (command.sf * 12));
 
         IR[1] = set_ir_flag(1, MAC1, false);
         IR[2] = set_ir_flag(2, MAC2, false);
         IR[3] = set_ir_flag(3, MAC3, false);
 
-        //SZ3 = MAC3 SAR ((1-sf)*12)                           ;ScreenZ FIFO 0..+FFFFh
+        //SZ3 = MAC3 SAR ((1-command.)*12)                           ;ScreenZ FIFO 0..+FFFFh
 
         SZ[0] = SZ[1];
         SZ[1] = SZ[2];
         SZ[2] = SZ[3];
-        SZ[3] = set_sz3_flag(MAC3 >> ((1 - sf) * 12));
+        SZ[3] = set_sz3_flag(MAC3 >> ((1 - command.sf) * 12));
 
         //MAC0=(((H*20000h/SZ3)+1)/2)*IR1+OFX, SX2=MAC0/10000h ;ScrX FIFO -400h..+3FFh
         //MAC0=(((H*20000h/SZ3)+1)/2)*IR2+OFY, SY2=MAC0/10000h ;ScrY FIFO -400h..+3FFh
@@ -431,26 +425,26 @@ void GTE::op_ncs()
 
 void GTE::op_ncds()
 {
-    MAC1 = (int)(set_mac_flag(1, (int64_t)LM.v1.x * V[0].x + LM.v1.y * V[0].y + LM.v1.z * V[0].z) >> sf * 12);
-    MAC2 = (int)(set_mac_flag(2, (int64_t)LM.v2.x * V[0].x + LM.v2.y * V[0].y + LM.v2.z * V[0].z) >> sf * 12);
-    MAC3 = (int)(set_mac_flag(3, (int64_t)LM.v3.x * V[0].x + LM.v3.y * V[0].y + LM.v3.z * V[0].z) >> sf * 12);
+    MAC1 = (int)(set_mac_flag(1, (int64_t)LM.v1.x * V[0].x + LM.v1.y * V[0].y + LM.v1.z * V[0].z) >> command.sf * 12);
+    MAC2 = (int)(set_mac_flag(2, (int64_t)LM.v2.x * V[0].x + LM.v2.y * V[0].y + LM.v2.z * V[0].z) >> command.sf * 12);
+    MAC3 = (int)(set_mac_flag(3, (int64_t)LM.v3.x * V[0].x + LM.v3.y * V[0].y + LM.v3.z * V[0].z) >> command.sf * 12);
 
-    IR[1] = set_ir_flag(1, MAC1, lm);
-    IR[2] = set_ir_flag(2, MAC2, lm);
-    IR[3] = set_ir_flag(3, MAC3, lm);
+    IR[1] = set_ir_flag(1, MAC1, command.lm);
+    IR[2] = set_ir_flag(2, MAC2, command.lm);
+    IR[3] = set_ir_flag(3, MAC3, command.lm);
 
-    //Console.WriteLine("NCDS " + ncdsTest + " " + MAC1.ToString("x8") + " " + MAC2.ToString("x8") + " " + MAC3.ToString("x8") + " " + (sf * 12).ToString("x1")
+    //Console.WriteLine("NCDS " + ncdsTest + " " + MAC1.ToString("x8") + " " + MAC2.ToString("x8") + " " + MAC3.ToString("x8") + " " + (command.sf * 12).ToString("x1")
     //             + " " + IR[0].ToString("x4") + " " + IR[1].ToString("x4") + " " + IR[2].ToString("x4") + " " + IR[3].ToString("x4") + " " + FLAG.ToString("x8"));
 
-    // [IR1, IR2, IR3] = [MAC1, MAC2, MAC3] = (BK * 1000h + LCM * IR) SAR(sf * 12)
+    // [IR1, IR2, IR3] = [MAC1, MAC2, MAC3] = (BK * 1000h + LCM * IR) SAR(command.sf * 12)
     // WARNING each multiplication can trigger mac flags so the check is needed on each op! Somehow this only affects the color matrix and not the light one
-    MAC1 = (int)(set_mac_flag(1, set_mac_flag(1, set_mac_flag(1, (int64_t)RBK * 0x1000 + LRGB.v1.x * IR[1]) + (int64_t)LRGB.v1.y * IR[2]) + (int64_t)LRGB.v1.z * IR[3]) >> sf * 12);
-    MAC2 = (int)(set_mac_flag(2, set_mac_flag(2, set_mac_flag(2, (int64_t)GBK * 0x1000 + LRGB.v2.x * IR[1]) + (int64_t)LRGB.v2.y * IR[2]) + (int64_t)LRGB.v2.z * IR[3]) >> sf * 12);
-    MAC3 = (int)(set_mac_flag(3, set_mac_flag(3, set_mac_flag(3, (int64_t)BBK * 0x1000 + LRGB.v3.x * IR[1]) + (int64_t)LRGB.v3.y * IR[2]) + (int64_t)LRGB.v3.z * IR[3]) >> sf * 12);
+    MAC1 = (int)(set_mac_flag(1, set_mac_flag(1, set_mac_flag(1, (int64_t)RBK * 0x1000 + LRGB.v1.x * IR[1]) + (int64_t)LRGB.v1.y * IR[2]) + (int64_t)LRGB.v1.z * IR[3]) >> command.sf * 12);
+    MAC2 = (int)(set_mac_flag(2, set_mac_flag(2, set_mac_flag(2, (int64_t)GBK * 0x1000 + LRGB.v2.x * IR[1]) + (int64_t)LRGB.v2.y * IR[2]) + (int64_t)LRGB.v2.z * IR[3]) >> command.sf * 12);
+    MAC3 = (int)(set_mac_flag(3, set_mac_flag(3, set_mac_flag(3, (int64_t)BBK * 0x1000 + LRGB.v3.x * IR[1]) + (int64_t)LRGB.v3.y * IR[2]) + (int64_t)LRGB.v3.z * IR[3]) >> command.sf * 12);
 
-    IR[1] = set_ir_flag(1, MAC1, lm);
-    IR[2] = set_ir_flag(2, MAC2, lm);
-    IR[3] = set_ir_flag(3, MAC3, lm);
+    IR[1] = set_ir_flag(1, MAC1, command.lm);
+    IR[2] = set_ir_flag(2, MAC2, command.lm);
+    IR[3] = set_ir_flag(3, MAC3, command.lm);
 
     // [MAC1, MAC2, MAC3] = [R * IR1, G * IR2, B * IR3] SHL 4;< --- for NCDx / NCCx
     MAC1 = (int)set_mac_flag(1, ((int64_t)RGBC.r * IR[1]) << 4);

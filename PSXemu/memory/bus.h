@@ -20,6 +20,12 @@
 #include <video/gpu_core.h>
 using std::unique_ptr;
 
+union Array {
+	uint8_t byte[4 * 1024];
+	uint16_t half[2 * 1024];
+	uint32_t word[1024];
+};
+
 class CPU;
 class Renderer;
 class Bus {
@@ -54,8 +60,11 @@ public:
 	GPU* gpu;
 	CPU* cpu;
 
-	TIMERS timers;
+	uint32_t spu_delay = 0;
+	Array registers;
 
+	TIMERS timers;
+	
 	const uint32_t region_mask[8] = {
 		0xffffffff, 0xffffffff,
 		0xffffffff, 0xffffffff,

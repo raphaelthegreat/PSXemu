@@ -48,6 +48,7 @@ enum GP0Command {
     Fill_Rect = 0x2,
     Mono_Trig = 0x20,
     Mono_Quad = 0x28,
+    Mono_Quad_Transparent = 0x2a,
     Shaded_Quad_Blend = 0x2c,
     Shaded_Quad_Raw_Texture = 0x2d,
     Shaded_Quad_Semi_Transparent_Raw_Texture = 0x2f,
@@ -59,6 +60,7 @@ enum GP0Command {
     Textured_Rect_Semi_Transparent = 0x66,
     Mono_Quad_Dot = 0x68,
     Mono_Rect_16 = 0x78,
+    Textured_Rect_16_Blending = 0x7c,
     Image_Load = 0xa0,
     Image_Store = 0xc0,
     Texture_Window_Setting = 0xe2,
@@ -136,8 +138,8 @@ struct state_t {
     uint32_t drawing_area_y1;
     uint32_t drawing_area_x2;
     uint32_t drawing_area_y2;
-    uint32_t x_offset;
-    uint32_t y_offset;
+    int16_t x_offset;
+    int16_t y_offset;
     uint32_t display_area_x;
     uint32_t display_area_y;
     uint32_t display_area_x1;
@@ -173,6 +175,7 @@ public:
     Pixel create_pixel(uint32_t point, uint32_t color, uint32_t coord = 0);
     glm::ivec3 unpack_color(uint32_t color);
     glm::ivec2 unpack_point(uint32_t point);
+    uint16_t fetch_texel(glm::ivec2 p, glm::uvec2 uv, glm::uvec2 clut);
 
     uint32_t data();
     uint32_t stat();
@@ -202,6 +205,7 @@ public:
     void gp0_clear_cache();
     void gp0_image_load();
     void gp0_image_store();
+    void gp0_textured_rect_16();
     void gp0_mono_rect_16();
     void gp0_mono_rect();
     void gp0_textured_rect_transparent();

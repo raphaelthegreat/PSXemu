@@ -221,8 +221,8 @@ void GPU::gp0_texture_window_setting()
 void GPU::gp0_drawing_offset()
 {
     //std::cout << "GPU Drawing offset\n";
-    state.x_offset = utility::sclip<11>(state.fifo[0] >> 0);
-    state.y_offset = utility::sclip<11>(state.fifo[0] >> 11);
+    state.x_offset = utility::sclip<11>(state.fifo[0] & 0x7ff);
+    state.y_offset = utility::sclip<11>((state.fifo[0] >> 11) & 0x7ff);
 }
 
 void GPU::gp0_mask_bit_setting()
@@ -263,6 +263,66 @@ void GPU::gp0_image_store()
     transfer.run.x = 0;
     transfer.run.y = 0;
     transfer.run.active = true;
+}
+
+void GPU::gp0_textured_rect_16()
+{
+    auto color = unpack_color(state.fifo[0]);
+    auto point1 = unpack_point(state.fifo[1]);
+    auto coord = state.fifo[2];
+    glm::ivec2 point2 = glm::ivec2(16, 16);
+
+    point1.x += state.x_offset;
+    point2.y += state.y_offset;
+
+    auto base_u = ((state.status.raw >> 0) & 0xf) * 64;
+    auto base_v = ((state.status.raw >> 4) & 0x1) * 256;
+    auto uv = glm::uvec2(base_u, base_v);
+
+    auto clut_x = ((coord >> 16) & 0x3f) * 16;
+    auto clut_y = ((coord >> 22) & 0x1ff);
+    auto clut = glm::uvec2(clut_x, clut_y);
+
+    for (int y = 0; y < point2.y; y++) {
+        for (int x = 0; x < point2.x; x++) {            
+            auto texel = vram.read(base_u + (x / 2), base_v + y);
+            int index = (texel >> 8 * (x & 1)) & 0xff;
+            auto color = vram.read(clut_x + index, clut_y);
+            vram.write(point1.x + x,
+                point1.y + y,
+                color);
+        }
+    }
+}
+
+uint16_t GPU::fetch_texel(glm::ivec2 p, glm::uvec2 uv, glm::uvec2 clut)
+{
+    TexColors depth = (TexColors)state.status.texture_depth;
+    
+    uint32_t x_mask = state.texture_window_mask_x;
+    uint32_t y_mask = state.texture_window_mask_y;
+    uint32_t x_offset = state.texture_window_offset_x;
+    uint32_t y_offset = state.texture_window_offset_y;
+
+    int tx = /*(p.x & ~(x_mask * 8)) | ((x_offset & x_mask) * 8) % 255*/p.x;
+    int ty = /*(p.y & ~(y_mask * 8)) | ((y_offset & y_mask) * 8) % 255*/p.y;
+    
+    uint16_t texel = 0;
+    if (depth == TexColors::D4bit) {
+        auto color = vram.read(uv.x + (tx / 4), uv.y + ty);
+        int index = (color >> 4 * (tx & 3)) & 0xf;
+        texel = vram.read(clut.x + index, clut.y);
+    }
+    else if (depth == TexColors::D8bit) {
+        auto color = vram.read(uv.x + (tx / 2), uv.y + ty);
+        int index = (color >> (tx & 1) * 8) & 0xFF;
+        texel = vram.read(clut.x + index, clut.y);
+    }
+    else {
+        texel = vram.read(tx + uv.x, ty + uv.y);
+    }
+
+    return texel;
 }
 
 void GPU::gp0_mono_rect_16()

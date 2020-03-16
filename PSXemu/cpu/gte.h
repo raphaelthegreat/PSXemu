@@ -177,13 +177,7 @@ public:
 	short ZSF3, ZSF4, DQA;      //R61 62 59
 	uint32_t FLAG;
 
-	int sf;                     //Shift fraction (0 or 12)
-	uint32_t MVMVA_M_Matrix;         //MVMVA Multiply Matrix    (0=Rotation. 1=Light, 2=Color, 3=Reserved)
-	uint32_t MVMVA_M_Vector;         //MVMVA Multiply Vector    (0=V0, 1=V1, 2=V2, 3=IR/long)
-	uint32_t MVMVA_T_Vector;         //MVMVA Translation Vector (0=TR, 1=BK, 2=FC/Bugged, 3=None)
-	bool lm;                     //Saturate IR1,IR2,IR3 result (0=To -8000h..+7FFFh, 1=To 0..+7FFFh)
-	uint32_t opcode;
-
+	GTECommand command;
 	std::unordered_map<uint32_t, GTEFunc> lookup;
 	//GTECommand command;
 };

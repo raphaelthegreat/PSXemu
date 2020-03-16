@@ -14,10 +14,8 @@ DMAController::DMAController(Bus* _bus)
 
 void DMAController::tick()
 {
-	DMAChannel& otc = channels[6];
-
-	if (otc.irq_pending) {
-		otc.irq_pending = false;
+	if (irq_pending) {
+		irq_pending = false;
 		bus->irq(Interrupt::DMA);
 	}
 }
@@ -28,18 +26,18 @@ void DMAController::transfer_finished(DMAChannels dma_channel)
 	
 	/* IRQ flags in Bit(24+n) are set upon DMAn completion - 
 	but caution - they are set ONLY if enabled in Bit(16+n).*/
-	if (get_bit(irq.enable, (int)dma_channel))
+	if (get_bit(irq.enable, (int)dma_channel) || irq.master_enable)
 		irq.flags = set_bit(irq.flags, (int)dma_channel, true);
 
-	bool previous = irq.master_flag;
-	irq.master_flag = irq.force || (irq.master_enable && ((irq.enable & irq.flags) > 0));
-	
 	/* The master flag is a simple readonly flag that follows the following rules:
 	   IF b15=1 OR (b23=1 AND (b16-22 AND b24-30)>0) THEN b31=1 ELSE b31=0
 	   Upon 0-to-1 transition of Bit31, the IRQ3 flag (in Port 1F801070h) gets set.
 	   Bit24-30 are acknowledged (reset to zero) when writing a "1" to that bits */
-	if (irq.master_flag && !previous) { /* Master flag 0-to-1 transition. */
-		channel.irq_pending = true;
+	bool previous = irq.master_flag;
+	irq.master_flag = irq.force || (irq.master_enable && ((irq.enable & irq.flags) > 0));
+	
+	if (irq.master_flag && !previous) {
+		irq_pending = true;
 	}
 }
 
@@ -134,8 +132,8 @@ void DMAController::block_copy(DMAChannels dma_channel)
 				bus->gpu->gp0(command);
 				break;
 			default:
-				printf("[Block copy] Unhandled DMA source channel: 0x%x\n", dma_channel);
-				__debugbreak();
+				//printf("[Block copy] Unhandled DMA source channel: 0x%x\n", dma_channel);
+				break;
 			}
 			break;
 		}
