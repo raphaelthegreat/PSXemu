@@ -80,7 +80,7 @@ void GTE::execute(Instr instr)
     if (handler != nullptr)
         handler();
     else {
-        std::cout << "Unhandled GTE command: 0x" << std::hex << command.opcode << '\n';
+        //std::cout << "Unhandled GTE command: 0x" << std::hex << command.opcode << '\n';
     }
 }
 

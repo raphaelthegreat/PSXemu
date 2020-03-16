@@ -130,22 +130,22 @@ struct DataMover {
 struct state_t {
     GPUSTAT status;
    
-    uint32_t texture_window_mask_x;
-    uint32_t texture_window_mask_y;
-    uint32_t texture_window_offset_x;
-    uint32_t texture_window_offset_y;
-    uint32_t drawing_area_x1;
-    uint32_t drawing_area_y1;
-    uint32_t drawing_area_x2;
-    uint32_t drawing_area_y2;
+    uint8_t texture_window_mask_x;
+    uint8_t texture_window_mask_y;
+    uint8_t texture_window_offset_x;
+    uint8_t texture_window_offset_y;
+    uint16_t drawing_area_x1;
+    uint16_t drawing_area_y1;
+    uint16_t drawing_area_x2;
+    uint16_t drawing_area_y2;
     int16_t x_offset;
     int16_t y_offset;
-    uint32_t display_area_x;
-    uint32_t display_area_y;
-    uint32_t display_area_x1;
-    uint32_t display_area_y1;
-    uint32_t display_area_x2;
-    uint32_t display_area_y2;
+    uint16_t display_area_x;
+    uint16_t display_area_y;
+    uint16_t display_area_x1;
+    uint16_t display_area_y1;
+    uint16_t display_area_x2;
+    uint16_t display_area_y2;
     bool textured_rectangle_x_flip;
     bool textured_rectangle_y_flip;
 
@@ -153,6 +153,33 @@ struct state_t {
 
     DataMover cpu_to_gpu_transfer;
     DataMover gpu_to_cpu_transfer;
+};
+
+struct Primitive {
+    bool isShaded;
+    bool isTextured;
+    bool isSemiTransparent;
+    bool isRawTextured;//if not: blended
+};
+
+union Point2D {
+    uint32_t val;
+
+    struct { int16_t x, y; };
+};
+
+union TextureData {
+    uint16_t val;
+
+    struct { uint8_t x, y; };
+};
+
+union Color8 {
+    uint32_t val;
+
+    struct {
+        uint8_t r, g, b, m;
+    };
 };
 
 typedef glm::ivec3 color_t;
@@ -189,6 +216,9 @@ public:
 
     void vram_transfer(uint16_t data);
     uint16_t vram_transfer();
+
+    void rasterizeRect(Point2D vec[], TextureData t, uint32_t c, uint16_t palette, uint32_t texpage, Primitive primitive);
+
 
     void gp0_nop();
     void gp0_mono_trig();

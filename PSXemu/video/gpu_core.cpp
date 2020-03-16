@@ -121,7 +121,7 @@ void GPU::register_commands()
     gp0_lookup[Mono_Trig] = BIND(gp0_mono_trig);
     gp0_lookup[Shaded_Textured_Quad_Blend] = BIND(gp0_shaded_textured_quad_blend);
     gp0_lookup[Mono_Rect] = BIND(gp0_mono_rect);
-    gp0_lookup[Textured_Rect_Semi_Transparent] = BIND(gp0_textured_rect_transparent);
+    gp0_lookup[Textured_Rect_Semi_Transparent] = BIND(gp0_textured_rect_opaque);
     gp0_lookup[Mono_Quad_Transparent] = BIND(gp0_mono_quad);
     gp0_lookup[Textured_Rect_16_Blending] = BIND(gp0_textured_rect_16);
 }

@@ -1,9 +1,20 @@
 #include <cassert>
 #include <string>
 #include "gpu_core.h"
+#include <algorithm>
 #include "vram.h"
 
 #pragma optimize("", off)
+
+static short signed11bit(uint32_t n) {
+    return (short)(((int)n << 21) >> 21);
+}
+
+template <typename _L, typename _R>
+auto max(const _L& l, const _R& r) { return (l > r ? l : r); }
+
+template <typename _L, typename _R>
+auto min(const _L& l, const _R& r) { return (l < r ? l : r); }
 
 static int command_size[] = {
     //0  1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
@@ -176,28 +187,25 @@ void GPU::gp0_textured_rect_opaque()
 void GPU::gp0_draw_mode()
 {
     //std::cout << "GPU Draw mode\n";
-    auto val = state.fifo[0];
+    uint32_t val = state.fifo[0];
 
-    state.status.page_base_x = (uint8_t)(val & 0xf);
-    state.status.page_base_y = (uint8_t)((val >> 4) & 1);
-    state.status.semi_transprency = (uint8_t)((val >> 5) & 3);
+    state.status.page_base_x = (uint8_t)(val & 0xF);
+    state.status.page_base_y = (uint8_t)((val >> 4) & 0x1);
+    state.status.semi_transprency = (uint8_t)((val >> 5) & 0x3);
+    state.status.texture_depth = (uint8_t)((val >> 7) & 0x3);
+    state.status.dithering = ((val >> 9) & 0x1) != 0;
+    state.status.draw_to_display = ((val >> 10) & 0x1) != 0;
+    state.status.texture_disable = ((val >> 11) & 0x1) != 0;
+    state.textured_rectangle_x_flip = ((val >> 12) & 0x1) != 0;
+    state.textured_rectangle_y_flip = ((val >> 13) & 0x1) != 0;
 
-    switch ((val >> 7) & 3) {
-    case 0: state.status.texture_depth = TexColors::D4bit; break;
-    case 1: state.status.texture_depth = TexColors::D8bit; break;
-    case 2: state.status.texture_depth = TexColors::D15bit; break;
-    };
-
-    state.status.dithering = ((val >> 9) & 1) != 0;
-    state.status.draw_to_display = ((val >> 10) & 1) != 0;
-    state.status.texture_disable = ((val >> 11) & 1) != 0;
-    state.textured_rectangle_x_flip = ((val >> 12) & 1) != 0;
-    state.textured_rectangle_y_flip = ((val >> 13) & 1) != 0;
 }
 
 void GPU::gp0_draw_area_top_left()
 {
     //std::cout << "GPU Draw area top left\n";
+    uint32_t val = state.fifo[0];
+
     state.drawing_area_x1 = utility::uclip<10>(state.fifo[0] >> 0);
     state.drawing_area_y1 = utility::uclip<10>(state.fifo[0] >> 10);
 }
@@ -221,8 +229,10 @@ void GPU::gp0_texture_window_setting()
 void GPU::gp0_drawing_offset()
 {
     //std::cout << "GPU Drawing offset\n";
-    state.x_offset = utility::sclip<11>(state.fifo[0] & 0x7ff);
-    state.y_offset = utility::sclip<11>((state.fifo[0] >> 11) & 0x7ff);
+    uint32_t val = state.fifo[0];
+
+    state.x_offset = signed11bit(val & 0x7FF);
+    state.y_offset = signed11bit((val >> 11) & 0x7FF);
 }
 
 void GPU::gp0_mask_bit_setting()
@@ -267,31 +277,223 @@ void GPU::gp0_image_store()
 
 void GPU::gp0_textured_rect_16()
 {
-    auto color = unpack_color(state.fifo[0]);
-    auto point1 = unpack_point(state.fifo[1]);
-    auto coord = state.fifo[2];
-    glm::ivec2 point2 = glm::ivec2(16, 16);
+    uint32_t command = state.fifo[0];
+    uint32_t color = command & 0xFFFFFF;
+    uint32_t opcode = command >> 24;
 
-    point1.x += state.x_offset;
-    point2.y += state.y_offset;
+    bool isTextured = (command & (1 << 26)) != 0;
+    bool isSemiTransparent = (command & (1 << 25)) != 0;
+    bool isRawTextured = (command & (1 << 24)) != 0;
 
-    auto base_u = ((state.status.raw >> 0) & 0xf) * 64;
-    auto base_v = ((state.status.raw >> 4) & 0x1) * 256;
-    auto uv = glm::uvec2(base_u, base_v);
+    Primitive primitive;
+    primitive.isTextured = isTextured;
+    primitive.isSemiTransparent = isSemiTransparent;
+    primitive.isRawTextured = isRawTextured;
 
-    auto clut_x = ((coord >> 16) & 0x3f) * 16;
-    auto clut_y = ((coord >> 22) & 0x1ff);
-    auto clut = glm::uvec2(clut_x, clut_y);
+    uint32_t vertex = state.fifo[1];
+    short xo = signed11bit(vertex & 0xFFFF);
+    short yo = signed11bit(vertex >> 16);
 
-    for (int y = 0; y < point2.y; y++) {
-        for (int x = 0; x < point2.x; x++) {            
-            auto texel = vram.read(base_u + (x / 2), base_v + y);
-            int index = (texel >> 8 * (x & 1)) & 0xff;
-            auto color = vram.read(clut_x + index, clut_y);
-            vram.write(point1.x + x,
-                point1.y + y,
-                color);
+    uint16_t palette = 0;
+    uint8_t textureX = 0;
+    uint8_t textureY = 0;
+    
+    if (isTextured) {
+        uint32_t texture = state.fifo[2];
+        palette = (uint16_t)((texture >> 16) & 0xFFFF);
+        textureX = (uint8_t)(texture & 0xFF);
+        textureY = (uint8_t)((texture >> 8) & 0xFF);
+    }
+
+    short width = 0;
+    short heigth = 0;
+
+    switch ((opcode & 0x18) >> 3) {
+    case 0x0: {
+        uint32_t hw = state.fifo[3];
+        width = (short)(hw & 0xFFFF);
+        heigth = (short)(hw >> 16);
+        break;
+    }
+    case 0x1: {
+        width = 1; heigth = 1;
+        break;
+    }
+    case 0x2: {
+        width = 8; heigth = 8;
+        break;
+    }
+    case 0x3: {
+        width = 16; heigth = 16;
+        break;
+    }
+    }
+
+    int y = yo + state.y_offset;
+    int x = xo + state.x_offset;
+
+    TextureData t[4];
+    Point2D v[4];
+
+    v[0].x = (short)x;
+    v[0].y = (short)y;
+
+    v[3].x = (short)(x + width);
+    v[3].y = (short)(y + heigth);
+
+    t[0].x = textureX;
+    t[0].y = textureY;
+
+    uint32_t texpage = 0;
+
+    texpage |= (state.textured_rectangle_y_flip ? 1u : 0) << 13;
+    texpage |= (state.textured_rectangle_x_flip ? 1u : 0) << 12;
+    texpage |= (state.status.texture_disable ? 1u : 0) << 11;
+    texpage |= (state.status.draw_to_display ? 1u : 0) << 10;
+    texpage |= (state.status.dithering ? 1u : 0) << 9;
+    texpage |= (uint32_t)(state.status.texture_depth << 7);
+    texpage |= (uint32_t)(state.status.semi_transprency << 5);
+    texpage |= (uint32_t)(state.status.page_base_y << 4);
+    texpage |= state.status.page_base_x;
+
+    rasterizeRect(v, t[0], color, palette, texpage, primitive);
+}
+
+uint16_t GetPixelBGR555(int x, int y) {
+    int color = vram.read(x, y);
+
+    uint8_t m = (uint8_t)((color & 0xFF000000) >> 24);
+    uint8_t r = (uint8_t)((color & 0x00FF0000) >> 16 + 3);
+    uint8_t g = (uint8_t)((color & 0x0000FF00) >> 8 + 3);
+    uint8_t b = (uint8_t)((color & 0x000000FF) >> 3);
+
+    return (uint16_t)(m << 15 | b << 10 | g << 5 | r);
+}
+
+int get4bppTexel(int x, int y, Point2D clut, Point2D textureBase) {
+    uint16_t index = vram.read(x / 4 + textureBase.x, y + textureBase.y);
+    int p = (index >> (x & 3) * 4) & 0xF;
+    return vram.read(clut.x + p, clut.y);
+}
+
+int get8bppTexel(int x, int y, Point2D clut, Point2D textureBase) {
+    uint16_t index = vram.read(x / 2 + textureBase.x, y + textureBase.y);
+    int p = (index >> (x & 1) * 8) & 0xFF;
+    return vram.read(clut.x + p, clut.y);
+}
+
+int get16bppTexel(int x, int y, Point2D textureBase) {
+    return vram.read(x + textureBase.x, y + textureBase.y);
+}
+
+int getTexel(int x, int y, Point2D clut, Point2D textureBase, int depth) {
+    x &= 255;
+    y &= 255;
+
+    if (depth == 0) {
+        return get4bppTexel(x, y, clut, textureBase);
+    }
+    else if (depth == 1) {
+        return get8bppTexel(x, y, clut, textureBase);
+    }
+    else {
+        return get16bppTexel(x, y, textureBase);
+    }
+}
+
+static uint8_t clampToFF(int v) {
+    if (v > 0xFF) return 0xFF;
+    else return (uint8_t)v;
+}
+
+static uint8_t clampToZero(int v) {
+    if (v < 0) return 0;
+    else return (uint8_t)v;
+}
+
+int handleSemiTransp(int x, int y, int color, int semiTranspMode) {
+    Color8 color0, color1, color2;
+    color0.val = (uint32_t)vram.read(x & 0x3FF, y & 0x1FF); //back
+    color1.val = (uint32_t)color; //front
+    switch (semiTranspMode) {
+    case 0: //0.5 x B + 0.5 x F    ;aka B/2+F/2
+        color2.r = (uint8_t)((color0.r + color1.r) >> 1);
+        color2.g = (uint8_t)((color0.g + color1.g) >> 1);
+        color2.b = (uint8_t)((color0.b + color1.b) >> 1);
+        break;
+    case 1://1.0 x B + 1.0 x F    ;aka B+F
+        color2.r = clampToFF(color0.r + color1.r);
+        color2.g = clampToFF(color0.g + color1.g);
+        color2.b = clampToFF(color0.b + color1.b);
+        break;
+    case 2: //1.0 x B - 1.0 x F    ;aka B-F
+        color2.r = clampToZero(color0.r - color1.r);
+        color2.g = clampToZero(color0.g - color1.g);
+        color2.b = clampToZero(color0.b - color1.b);
+        break;
+    case 3: //1.0 x B +0.25 x F    ;aka B+F/4
+        color2.r = clampToFF(color0.r + (color1.r >> 2));
+        color2.g = clampToFF(color0.g + (color1.g >> 2));
+        color2.b = clampToFF(color0.b + (color1.b >> 2));
+        break;
+    }//actually doing RGB calcs on BGR struct...
+    return (int)color2.val;
+}
+
+void GPU::rasterizeRect(Point2D vec[], TextureData t, uint32_t c, uint16_t palette, uint32_t texpage, Primitive primitive) {
+    int xOrigin = max(vec[0].x, state.drawing_area_x1);
+    int yOrigin = max(vec[0].y, state.drawing_area_y1);
+    int width = min(vec[3].x, state.drawing_area_x2);
+    int height = min(vec[3].y, state.drawing_area_y2);
+
+    int depth = (int)(texpage >> 7) & 0x3;
+    int semiTransp = (int)((texpage >> 5) & 0x3);
+
+    Point2D clut;
+    clut.x = (short)((palette & 0x3f) << 4);
+    clut.y = (short)((palette >> 6) & 0x1FF);
+
+    Point2D textureBase;
+    textureBase.x = (short)((texpage & 0xF) << 6);
+    textureBase.y = (short)(((texpage >> 4) & 0x1) << 8);
+
+    int uOrigin = t.x + (xOrigin - vec[0].x);
+    int vOrigin = t.y + (yOrigin - vec[0].y);
+
+    Color8 color0, color1;
+    color0.val = c;
+    int baseColor = (color0.m << 24 | color0.r << 16 | color0.g << 8 | color0.b);
+
+    for (int y = yOrigin, v = vOrigin; y < height; y++, v++) {
+        for (int x = xOrigin, u = uOrigin; x < width; x++, u++) {
+            int color = baseColor;
+
+            if (primitive.isTextured) {
+                int texel = getTexel(u, v, clut, textureBase, depth);
+                if (texel == 0) {
+                    continue;
+                }
+
+                if (!primitive.isRawTextured) {
+                    color0.val = (uint32_t)color;
+                    color1.val = (uint32_t)texel;
+                    color1.r = clampToFF(color0.r * color1.r >> 7);
+                    color1.g = clampToFF(color0.g * color1.g >> 7);
+                    color1.b = clampToFF(color0.b * color1.b >> 7);
+
+                    texel = (int)color1.val;
+                }
+
+                color = texel;
+            }
+
+            if (primitive.isSemiTransparent && (!primitive.isTextured || (color & 0xFF000000) != 0)) {
+                color = handleSemiTransp(x, y, color, semiTransp);
+            }
+
+            vram.write(x, y, color);
         }
+
     }
 }
 
@@ -304,8 +506,11 @@ uint16_t GPU::fetch_texel(glm::ivec2 p, glm::uvec2 uv, glm::uvec2 clut)
     uint32_t x_offset = state.texture_window_offset_x;
     uint32_t y_offset = state.texture_window_offset_y;
 
-    int tx = /*(p.x & ~(x_mask * 8)) | ((x_offset & x_mask) * 8) % 255*/p.x;
-    int ty = /*(p.y & ~(y_mask * 8)) | ((y_offset & y_mask) * 8) % 255*/p.y;
+    p.x &= 255;
+    p.y &= 255;
+
+    int tx = (p.x & ~(x_mask * 8)) | ((x_offset & x_mask) * 8);
+    int ty = (p.y & ~(y_mask * 8)) | ((y_offset & y_mask) * 8);
     
     uint16_t texel = 0;
     if (depth == TexColors::D4bit) {
