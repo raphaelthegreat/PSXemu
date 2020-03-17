@@ -63,7 +63,11 @@ public:
 	uint32_t spu_delay = 0;
 	Array registers;
 
-	TIMERS timers;
+	Timer timers[3] = {
+		{ TimerID::TMR0, this },
+		{ TimerID::TMR1, this },
+		{ TimerID::TMR2, this }
+	};
 	
 	const uint32_t region_mask[8] = {
 		0xffffffff, 0xffffffff,

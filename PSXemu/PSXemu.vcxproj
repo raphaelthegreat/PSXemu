@@ -98,6 +98,7 @@
     <ClCompile Include="devices\cdrom_disk.cpp" />
     <ClCompile Include="devices\cdrom_drive.cpp" />
     <ClCompile Include="devices\controller.cpp" />
+    <ClCompile Include="devices\timer.cpp" />
     <ClCompile Include="glad.c" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_demo.cpp" />

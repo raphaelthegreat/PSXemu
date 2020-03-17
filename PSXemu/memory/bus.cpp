@@ -65,16 +65,10 @@ void Bus::tick()
 	dma.tick();
 	cddrive.step();
 
-	int dotClockDiv[] = { 10, 8, 5, 4, 7 };
-
-	int dot = dotClockDiv[gpu->state.status.hres];
-
-	auto state = std::make_tuple(dot, gpu->in_hblank, gpu->in_vblank);
-	timers.syncGPU(state);
-
-	if (timers.tick(0, 300)) irq(Interrupt::TIMER0);
-	if (timers.tick(1, 300)) irq(Interrupt::TIMER1);
-	if (timers.tick(2, 300)) irq(Interrupt::TIMER2);
+	for (int i = 0; i < 3; i++) {
+		timers[i].tick(300);
+		timers[i].gpu_sync(gpu->in_hblank, gpu->in_vblank);
+	}
 
 	controller.tick();
 
@@ -103,7 +97,8 @@ T Bus::read(uint32_t addr)
 	/* Map the memory ranges. */
 	uint32_t abs_addr = physical_addr(addr);
 	if (TIMERS.contains(abs_addr)) {
-		return timers.read<T>(abs_addr);
+		uint8_t timer = (abs_addr >> 4) & 3;
+		return timers[timer].read(abs_addr);
 	}
 	else if (RAM.contains(abs_addr)) {
 		return ram->read<T>(abs_addr);
@@ -169,7 +164,8 @@ void Bus::write(uint32_t addr, T data)
 	/* Map the memory ranges. */
 	uint32_t abs_addr = physical_addr(addr);
 	if (TIMERS.contains(abs_addr)) {
-		return timers.write<T>(abs_addr, data);
+		uint8_t timer = (abs_addr >> 4) & 3;
+		return timers[timer].write(abs_addr, data);
 	}
 	else if (EXPANSION_2.contains(abs_addr)) {
 		return;
