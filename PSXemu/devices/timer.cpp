@@ -126,9 +126,9 @@ void Timer::tick(uint32_t cycles)
 					return;
 			}
 		}
-		
+
 		if (clock_src == ClockSrc::Dotclock) {
-			current.raw += (uint16_t)(count * 11 / 7);
+			current.raw += (uint16_t)(count * 11.0 / 7);
 			count = 0;
 		}
 		else {
@@ -172,7 +172,7 @@ void Timer::tick(uint32_t cycles)
 	else if (timer_id == TimerID::TMR2) {
 		if (mode.sync_enable && sync == SyncMode::Stop)
 			return;
-		
+
 		if (clock_src == ClockSrc::SystemDiv8) {
 			current.raw += (uint16_t)(count / 8);
 			count %= 8;
@@ -202,7 +202,7 @@ void Timer::tick(uint32_t cycles)
 
 		if (mode.reset == ResetWhen::Overflow)
 			current.raw = 0;
-		
+
 		if (mode.irq_when_overflow)
 			should_irq = true;
 	}
@@ -217,7 +217,7 @@ void Timer::gpu_sync(bool hblank, bool vblank)
 {
 	just_hblank = !in_hblank && hblank;
 	just_vblank = !in_vblank && vblank;
-	
+
 	in_hblank = hblank;
 	in_vblank = vblank;
 }

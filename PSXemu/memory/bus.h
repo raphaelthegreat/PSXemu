@@ -5,6 +5,7 @@
 
 #include <memory/bios.h>
 #include <memory/range.h>
+#include <memory/scratchpad.h>
 #include <memory/ram.h>
 #include <memory/dma.h>
 
@@ -19,6 +20,12 @@
 #include <video/gpu_core.h>
 using std::unique_ptr;
 
+union Array {
+	uint8_t byte[4 * 1024];
+	uint16_t half[2 * 1024];
+	uint32_t word[1024];
+};
+
 class CPU;
 class Renderer;
 class Bus {
@@ -27,6 +34,7 @@ public:
 	~Bus() = default;
 
 	void tick();
+	std::tuple<uint32_t, uint32_t, uint32_t, uint32_t> loadEXE(std::string test);
 
 	template <typename T = uint32_t>
 	T read(uint32_t addr);
@@ -45,18 +53,22 @@ public:
 	DMAController dma;
 	JOYPAD controller;
 	CacheControl cache_ctrl;
+	Scratchpad scratchpad;
 	io::CdromDrive cddrive;
 
 	Renderer* gl_renderer;
 	GPU* gpu;
 	CPU* cpu;
 
+	uint32_t spu_delay = 0;
+	Array registers;
+
 	Timer timers[3] = {
 		{ TimerID::TMR0, this },
 		{ TimerID::TMR1, this },
 		{ TimerID::TMR2, this }
 	};
-
+	
 	const uint32_t region_mask[8] = {
 		0xffffffff, 0xffffffff,
 		0xffffffff, 0xffffffff,

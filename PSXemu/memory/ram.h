@@ -4,6 +4,12 @@
 
 const Range RAM = Range(0x00000000, 2048 * 1024);
 
+struct PSEXELoadInfo {
+	uint32_t pc;
+	uint32_t r28;
+	uint32_t r29_r30;
+};
+
 class Ram {
 public:
 	Ram() = default;
@@ -11,6 +17,8 @@ public:
 	
 	template <typename T>
 	T read(uint32_t address);
+
+	PSEXELoadInfo executable();
 
 	template <typename T>
 	void write(uint32_t address, T data);

@@ -35,8 +35,8 @@ public:
 	VRAM() = default;
 	~VRAM() = default;
 
-	uint16_t read(int x, int y);
-	void write(int x, int y, uint16_t data);
+	uint16_t read(uint32_t x, uint32_t y);
+	void write(uint32_t x, uint32_t y, uint16_t data);
 
 	uint16_t* get();
 

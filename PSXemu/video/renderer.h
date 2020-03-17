@@ -3,10 +3,12 @@
 #include "opengl/texture.h"
 #include <GLFW/glfw3.h>
 #include <memory>
+#include <debug/gui.h>
 
 using std::unique_ptr;
 
 class VRAM;
+class Bus;
 class Renderer {
 public:
 	Renderer(int width, int height, std::string title);
@@ -15,7 +17,7 @@ public:
 	void set_draw_offset(int16_t x, int16_t y);
 	void draw_scene();
 
-	void update();
+	void update(Bus* bus);
 	bool is_open();
 
 	static void resize_func(GLFWwindow* window, int width, int height);
@@ -32,4 +34,6 @@ public:
 
 	/* Screen pixels. */
 	std::vector<uint8_t> pixels;
+
+	GUI debug_gui;
 };                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             

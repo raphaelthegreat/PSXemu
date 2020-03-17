@@ -4,8 +4,6 @@
 #include <cpu/util.h>
 #include <memory/bus.h>
 
-//#pragma optimize("", off)
-
 /* DMA Controller class implementation. */
 DMAController::DMAController(Bus* _bus)
 {
@@ -16,27 +14,30 @@ DMAController::DMAController(Bus* _bus)
 
 void DMAController::tick()
 {
-	
+	if (irq_pending) {
+		irq_pending = false;
+		bus->irq(Interrupt::DMA);
+	}
 }
 
-bool DMAController::is_channel_enabled(DMAChannels channel)
+void DMAController::transfer_finished(DMAChannels dma_channel)
 {
-	return (irq.raw & (1 << (16 + (uint8_t)channel))) || irq.master_enable;;
-}
+	DMAChannel& channel = channels[(int)dma_channel];
 
-void DMAController::transfer_finished(DMAChannels channel)
-{
-	bool is_enabled = is_channel_enabled(channel);
+	/* IRQ flags in Bit(24+n) are set upon DMAn completion -
+	but caution - they are set ONLY if enabled in Bit(16+n).*/
+	if (get_bit(irq.enable, (int)dma_channel) || irq.master_enable)
+		irq.flags = set_bit(irq.flags, (int)dma_channel, true);
 
-	if (is_enabled) {
+	/* The master flag is a simple readonly flag that follows the following rules:
+	   IF b15=1 OR (b23=1 AND (b16-22 AND b24-30)>0) THEN b31=1 ELSE b31=0
+	   Upon 0-to-1 transition of Bit31, the IRQ3 flag (in Port 1F801070h) gets set.
+	   Bit24-30 are acknowledged (reset to zero) when writing a "1" to that bits */
+	bool previous = irq.master_flag;
+	irq.master_flag = irq.force || (irq.master_enable && ((irq.enable & irq.flags) > 0));
 
-		std::bitset<32> bs(irq.raw);
-		bs.set((uint8_t)channel + 24, true);
-		irq.raw = bs.to_ulong();
-
-		uint8_t all_enable = (irq.raw & 0x7F0000) >> 16;
-		uint8_t all_flag = (irq.raw & 0x7F000000) >> 24;
-		irq_pending = irq.force || (irq.master_enable && (all_enable & all_flag));
+	if (irq.master_flag && !previous) {
+		irq_pending = true;
 	}
 }
 
@@ -49,13 +50,16 @@ void DMAController::start(DMAChannels dma_channel)
 	else
 		/* Start block copy routine. */
 		block_copy(dma_channel);
+
+	/* Complete the transfer. */
+	transfer_finished(dma_channel);
 }
 
 void DMAController::block_copy(DMAChannels dma_channel)
 {
 	/* Get the channel to start the transfer. */
 	DMAChannel& channel = channels[(uint32_t)dma_channel];
-	
+
 	/* Necessary data we need to start. */
 	uint32_t trans_dir = channel.control.trans_dir;
 	SyncType sync_mode = channel.control.sync_mode;
@@ -63,9 +67,9 @@ void DMAController::block_copy(DMAChannels dma_channel)
 
 	/* Get base address of the transfer. */
 	uint32_t base_addr = channel.base;
-	
+
 	/* Set steping mode (increment or decrement at every step). */
-	int32_t increment = 0; 
+	int32_t increment = 0;
 	switch (step_mode) {
 	case 0:
 		increment = 4;
@@ -74,9 +78,9 @@ void DMAController::block_copy(DMAChannels dma_channel)
 		increment = -4;
 		break;
 	}
-	
+
 	/* Get the amout of bytes each data must be interpreted as. */
-	/* This is different between sync modes. 
+	/* This is different between sync modes.
 	   For Manual SyncMode:
 			bits 0-15 -> number of blocks (block_size)
 			bis 16-31 -> unused
@@ -102,9 +106,8 @@ void DMAController::block_copy(DMAChannels dma_channel)
 
 			switch (dma_channel) {
 			case DMAChannels::OTC:
-				/*  */
 				data = (block_size == 1 ? 0xffffff :
-					   (addr - 4) & 0x1fffff);
+					(addr - 4) & 0x1fffff);
 				break;
 			case DMAChannels::GPU:
 				data = bus->gpu->data();
@@ -129,8 +132,8 @@ void DMAController::block_copy(DMAChannels dma_channel)
 				bus->gpu->gp0(command);
 				break;
 			default:
-				printf("[Block copy] Unhandled DMA source channel: 0x%x\n", dma_channel);
-				__debugbreak();
+				//printf("[Block copy] Unhandled DMA source channel: 0x%x\n", dma_channel);
+				break;
 			}
 			break;
 		}
@@ -141,11 +144,10 @@ void DMAController::block_copy(DMAChannels dma_channel)
 		/* Decrement the remaing blocks. */
 		block_size--;
 	}
-	
+
 	/* Complete DMA Transfer */
 	channel.control.enable = false;
 	channel.control.trigger = false;
-	transfer_finished(dma_channel);
 }
 
 void DMAController::list_copy(DMAChannels dma_channel)
@@ -169,19 +171,19 @@ void DMAController::list_copy(DMAChannels dma_channel)
 		/*if (count > 0)
 			printf("Packet size: %d\n", count);*/
 
-		/* Read words of the packet. */
+			/* Read words of the packet. */
 		while (count > 0) {
 			/* Point to next packet address. */
 			addr = (addr + 4) & 0x1ffffc;
-			
+
 			/* Get command from main RAM. */
-			uint32_t command = bus->read(addr);			
-			
+			uint32_t command = bus->read(addr);
+
 			/* Send data to the GPU. */
 			bus->gpu->gp0(command);
 			count--;
 		}
-		
+
 		/* If address is 0xffffff then we are done. */
 		/* NOTE: mednafen only checks for the MSB, but I do no know why. */
 		if (get_bit(packet.next_addr, 23))
@@ -194,13 +196,12 @@ void DMAController::list_copy(DMAChannels dma_channel)
 	/* Complete DMA Transfer */
 	channel.control.enable = false;
 	channel.control.trigger = false;
-	transfer_finished(dma_channel);
 }
 
 uint32_t DMAController::read(uint32_t address)
 {
 	uint32_t off = address - DMA_RANGE.start;
-	
+
 	/* Get channel information from address. */
 	uint32_t channel_num = (off & 0x70) >> 4;
 	uint32_t offset = off & 0xf;
@@ -240,7 +241,7 @@ uint32_t DMAController::read(uint32_t address)
 void DMAController::write(uint32_t address, uint32_t val)
 {
 	uint32_t off = address - DMA_RANGE.start;
-	
+
 	/* Get channel information from address. */
 	uint32_t channel_num = (off & 0x70) >> 4;
 	uint32_t offset = off & 0xf;
@@ -281,6 +282,7 @@ void DMAController::write(uint32_t address, uint32_t val)
 			break;
 		case 4:
 			irq.raw = val;
+			irq.master_flag = irq.force || (irq.master_enable && ((irq.enable & irq.flags) > 0));
 			break;
 		default:
 			printf("Unhandled DMA write at offset: 0x%x\n", off);

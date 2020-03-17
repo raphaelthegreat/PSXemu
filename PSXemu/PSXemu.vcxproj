@@ -46,14 +46,14 @@
     <LinkIncremental>true</LinkIncremental>
     <OutDir>$(SolutionDir)binaries\$(Configuration)-$(Platform)\</OutDir>
     <IntDir>$(SolutionDir)binaries\$(Configuration)-$(Platform)\</IntDir>
-    <IncludePath>$(SolutionDir)libraries\glm\include;$(SolutionDir)libraries\glad;$(SolutionDir)PSXemu\;$(SolutionDir)libraries\glfw\include\;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)libraries\imgui\include;$(SolutionDir)libraries\glm\include;$(SolutionDir)libraries\glad;$(SolutionDir)PSXemu\;$(SolutionDir)libraries\glfw\include\;$(IncludePath)</IncludePath>
     <LibraryPath>$(SolutionDir)libraries\glfw\lib\Debug\;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>$(SolutionDir)binaries\$(Configuration)-$(Platform)\</OutDir>
     <IntDir>$(SolutionDir)binaries\$(Configuration)-$(Platform)\</IntDir>
-    <IncludePath>$(SolutionDir)libraries\glm\include;$(SolutionDir)libraries\glad;$(SolutionDir)PSXemu\;$(SolutionDir)libraries\glfw\include\;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)libraries\imgui\include;$(SolutionDir)libraries\glm\include;$(SolutionDir)libraries\glad;$(SolutionDir)PSXemu\;$(SolutionDir)libraries\glfw\include\;$(IncludePath)</IncludePath>
     <LibraryPath>$(SolutionDir)libraries\glfw\lib\Release\;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -90,17 +90,27 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="cpu\cpu.cpp" />
+    <ClCompile Include="cpu\gte.cpp" />
+    <ClCompile Include="cpu\gte_opcodes.cpp" />
     <ClCompile Include="cpu\opcode.cpp" />
     <ClCompile Include="cpu\util.cpp" />
+    <ClCompile Include="debug\gui.cpp" />
     <ClCompile Include="devices\cdrom_disk.cpp" />
     <ClCompile Include="devices\cdrom_drive.cpp" />
     <ClCompile Include="devices\controller.cpp" />
     <ClCompile Include="devices\timer.cpp" />
     <ClCompile Include="glad.c" />
+    <ClCompile Include="imgui\imgui.cpp" />
+    <ClCompile Include="imgui\imgui_demo.cpp" />
+    <ClCompile Include="imgui\imgui_draw.cpp" />
+    <ClCompile Include="imgui\imgui_impl_glfw.cpp" />
+    <ClCompile Include="imgui\imgui_impl_opengl3.cpp" />
+    <ClCompile Include="imgui\imgui_widgets.cpp" />
     <ClCompile Include="memory\bios.cpp" />
     <ClCompile Include="memory\dma.cpp" />
     <ClCompile Include="memory\bus.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="memory\ram.cpp" />
     <ClCompile Include="psx.cpp" />
     <ClCompile Include="video\gp0.cpp" />
     <ClCompile Include="video\gp1.cpp" />
@@ -114,10 +124,12 @@
     <ClInclude Include="cpu\cache.h" />
     <ClInclude Include="cpu\cop0.h" />
     <ClInclude Include="cpu\enum.h" />
+    <ClInclude Include="cpu\gte.h" />
     <ClInclude Include="cpu\instr.h" />
     <ClInclude Include="cpu\utility.h" />
     <ClInclude Include="cpu\util.h" />
     <ClInclude Include="cpu\cpu.h" />
+    <ClInclude Include="debug\gui.h" />
     <ClInclude Include="devices\cdrom_disk.hpp" />
     <ClInclude Include="devices\cdrom_drive.hpp" />
     <ClInclude Include="devices\controller.h" />
@@ -127,6 +139,7 @@
     <ClInclude Include="memory\bus.h" />
     <ClInclude Include="memory\ram.h" />
     <ClInclude Include="memory\range.h" />
+    <ClInclude Include="memory\scratchpad.h" />
     <ClInclude Include="psx.h" />
     <ClInclude Include="video\gpu_core.h" />
     <ClInclude Include="video\math_util.h" />
@@ -137,7 +150,9 @@
     <ClInclude Include="video\vram.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Bust-a-Move2.bin" />
     <None Include="Crash_Bandicoot.bin" />
+    <None Include="imgui.ini" />
     <None Include="SCPH1001.BIN" />
     <None Include="shaders\fragment.frag" />
     <None Include="shaders\vertex.vert" />

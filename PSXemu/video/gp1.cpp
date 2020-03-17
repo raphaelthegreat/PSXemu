@@ -13,43 +13,45 @@ void GPU::gp1(uint32_t data) {
         break;
 
     case 0x02:
-        state.status.raw &= ~0x01000000;
+        state.status.interrupt_req = false;
         break;
 
     case 0x03:
-        state.status.raw &= ~0x00800000;
-        state.status.raw |= (data << 23) & 0x00800000;
+        state.status.display_disable = (data & 1) != 0;
         break;
 
     case 0x04:
-        state.status.raw &= ~0x60000000;
-        state.status.raw |= (data << 29) & 0x60000000;
+        state.status.dma_dir = data & 0x3;
         break;
 
     case 0x05:
-        state.display_area_x = utility::uclip<10>(data >> 0);
-        state.display_area_y = utility::uclip< 9>(data >> 10);
+        state.display_area_x = (uint16_t)(data & 0x3FE);
+        state.display_area_y = (uint16_t)((data >> 10) & 0x1FE);
         break;
 
     case 0x06:
-        state.display_area_x1 = utility::uclip<12>(data >> 0);
-        state.display_area_x2 = utility::uclip<12>(data >> 12);
+        state.display_area_x1 = (uint16_t)(data & 0xFFF);
+        state.display_area_x2 = (uint16_t)((data >> 12) & 0xFFF);
         break;
 
     case 0x07:
-        state.display_area_y1 = utility::uclip<10>(data >> 0);
-        state.display_area_y2 = utility::uclip<10>(data >> 10);
+        state.display_area_y1 = (uint16_t)(data & 0x3FF);
+        state.display_area_y2 = (uint16_t)((data >> 10) & 0x3FF);
         break;
 
     case 0x08:
-        state.status.raw &= ~0x7f4000;
-        state.status.raw |= (data << 17) & 0x7e0000;
-        state.status.raw |= (data << 10) & 0x10000;
-        state.status.raw |= (data << 7) & 0x4000;
+        state.status.hres = ((uint8_t)((data & 0x40) >> 6) << 2 | (uint8_t)(data & 0x3));
+        state.status.vres = (data & 0x4) != 0;
+        state.status.video_mode = (data & 0x8) != 0;
+        state.status.color_depth = (data & 0x10) != 0;
+        state.status.vertical_interlace = (data & 0x20) != 0;
+        state.status.reverse_flag = (data & 0x80) != 0;
+
+        state.status.field = state.status.vertical_interlace ? true : false;
         break;
 
     default:
-        printf("unhandled gp1 command: 0x%08x\n", data);
+        printf("unhandled gp1 command: 0x%08x\n", (data >> 24) & 0x3f);
         break;
     }
 }

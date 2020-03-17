@@ -46,15 +46,23 @@ enum GP0Command {
     Nop = 0x0,
     Clear_Cache = 0x1,
     Fill_Rect = 0x2,
+    Mono_Trig = 0x20,
     Mono_Quad = 0x28,
+    Mono_Quad_Transparent = 0x2a,
     Shaded_Quad_Blend = 0x2c,
     Shaded_Quad_Raw_Texture = 0x2d,
     Shaded_Quad_Semi_Transparent_Raw_Texture = 0x2f,
     Shaded_Triangle = 0x30,
     Shaded_Quad = 0x38,
+    Shaded_Textured_Quad_Blend = 0x3c,
+    Mono_Rect = 0x60,
+    Textured_Rect_Blend = 0x64,
     Textured_Rect_Opaque = 0x65,
+    Textured_Rect_Semi_Transparent = 0x66,
     Mono_Quad_Dot = 0x68,
     Mono_Rect_16 = 0x78,
+    Textured_Rect_16_Blending = 0x7c,
+    Image_Transfer = 0x80,
     Image_Load = 0xa0,
     Image_Store = 0xc0,
     Texture_Window_Setting = 0xe2,
@@ -124,22 +132,22 @@ struct DataMover {
 struct state_t {
     GPUSTAT status;
    
-    uint32_t texture_window_mask_x;
-    uint32_t texture_window_mask_y;
-    uint32_t texture_window_offset_x;
-    uint32_t texture_window_offset_y;
-    uint32_t drawing_area_x1;
-    uint32_t drawing_area_y1;
-    uint32_t drawing_area_x2;
-    uint32_t drawing_area_y2;
-    uint32_t x_offset;
-    uint32_t y_offset;
-    uint32_t display_area_x;
-    uint32_t display_area_y;
-    uint32_t display_area_x1;
-    uint32_t display_area_y1;
-    uint32_t display_area_x2;
-    uint32_t display_area_y2;
+    uint8_t texture_window_mask_x;
+    uint8_t texture_window_mask_y;
+    uint8_t texture_window_offset_x;
+    uint8_t texture_window_offset_y;
+    uint16_t drawing_area_x1;
+    uint16_t drawing_area_y1;
+    uint16_t drawing_area_x2;
+    uint16_t drawing_area_y2;
+    int16_t x_offset;
+    int16_t y_offset;
+    uint16_t display_area_x;
+    uint16_t display_area_y;
+    uint16_t display_area_x1;
+    uint16_t display_area_y1;
+    uint16_t display_area_x2;
+    uint16_t display_area_y2;
     bool textured_rectangle_x_flip;
     bool textured_rectangle_y_flip;
 
@@ -147,6 +155,35 @@ struct state_t {
 
     DataMover cpu_to_gpu_transfer;
     DataMover gpu_to_cpu_transfer;
+};
+
+struct Primitive {
+    bool isShaded;
+    bool isTextured;
+    bool isSemiTransparent;
+    bool isRawTextured;//if not: blended
+};
+
+union Point2D {
+    uint32_t val;
+
+    struct { int16_t x, y; };
+
+    operator glm::ivec2() { return glm::ivec2(x, y); }
+};
+
+union TextureData {
+    uint16_t val;
+
+    struct { uint8_t x, y; };
+};
+
+union Color8 {
+    uint32_t val;
+
+    struct {
+        uint8_t r, g, b, m;
+    };
 };
 
 typedef glm::ivec3 color_t;
@@ -167,8 +204,9 @@ public:
     void register_commands();
 
     Pixel create_pixel(uint32_t point, uint32_t color, uint32_t coord = 0);
-    glm::ivec3 unpack_color(uint32_t color);
-    glm::ivec2 unpack_point(uint32_t point);
+    static glm::ivec3 unpack_color(uint32_t color);
+    static glm::ivec2 unpack_point(uint32_t point);
+    uint16_t fetch_texel(glm::ivec2 p, glm::uvec2 uv, glm::uvec2 clut);
 
     uint32_t data();
     uint32_t stat();
@@ -182,8 +220,14 @@ public:
 
     void vram_transfer(uint16_t data);
     uint16_t vram_transfer();
+    void vram_to_vram_transfer();
+
+    int getTexel(int x, int y, Point2D clut, Point2D textureBase, int depth);
+    void rasterizeRect(Point2D vec[], TextureData t, uint32_t c, uint16_t palette, uint32_t texpage, Primitive primitive);
+    void rasterizeTri(Point2D v0, Point2D v1, Point2D v2, TextureData t0, TextureData t1, TextureData t2, uint32_t c0, uint32_t c1, uint32_t c2, uint32_t palette, uint32_t texpage, Primitive primitive);
 
     void gp0_nop();
+    void gp0_mono_trig();
     void gp0_mono_quad();
     void gp0_pixel();
     void gp0_fill_rect();
@@ -197,11 +241,15 @@ public:
     void gp0_clear_cache();
     void gp0_image_load();
     void gp0_image_store();
+    void gp0_textured_rect_16();
     void gp0_mono_rect_16();
+    void gp0_mono_rect();
+    void gp0_textured_rect_transparent();
     void gp0_shaded_quad();
     void gp0_shaded_quad_blend();
     void gp0_shaded_quad_transparent();
     void gp0_shaded_trig();
+    void gp0_shaded_textured_quad_blend();
 
 public:
     Rasterizer raster;

@@ -1,9 +1,10 @@
 #pragma once
 #include <memory/bus.h>
 #include <unordered_map>
-#include <cpu/enum.h>
-#include <cpu/instr.h>
+#include "enum.h"
+#include "instr.h"
 #include "cop0.h"
+#include "gte.h"
 
 struct MEM {
     uint32_t reg = 0;
@@ -32,7 +33,8 @@ public:
     void register_opcodes();
     bool handle_interrupts();
     void handle_load_delay();
-    
+    void force_test();
+
     void exception(ExceptionType cause, uint32_t cop = 0);
     void setregisters(uint32_t regN, uint32_t value);
     void delayedLoad(uint32_t regN, uint32_t value);
@@ -50,6 +52,8 @@ public:
 
     /* Opcodes. */
     void op_special(); void op_cop2(); void op_cop0();
+    void op_lwc2(); void op_swc2(); void op_mfc2(); void op_mtc2();
+    void op_cfc2(); void op_ctc2();
 
     /* Read/Write instructions. */
     void op_lhu(); void op_lh(); void op_lbu(); void op_sw();
@@ -96,12 +100,14 @@ public:
     bool is_branch, is_delay_slot;
     bool took_branch;
     bool in_delay_slot_took_branch;
+    bool log = false;
 
     uint32_t exception_addr[2] = { 0x80000080, 0xBFC00180 };
     CacheLine instr_cache[256] = {};
 
     /* Coprocessors. */
     Cop0 cop0;
+    GTE gte;
 
     MEM write_back, memory_load;
     MEM delayed_memory_load;
@@ -110,6 +116,7 @@ public:
 
     /* Opcode lookup table. */
     std::unordered_map<uint32_t, CPUfunc> lookup, special;
+    std::unordered_map<uint32_t, std::string> str_lookup, str_special;
 };
 
 template<typename T>

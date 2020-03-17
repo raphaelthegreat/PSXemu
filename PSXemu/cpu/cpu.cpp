@@ -1,10 +1,13 @@
 #include "cpu.h"
 
+#pragma optimize("", off)
+
 static inline uint32_t overflow_check(uint32_t x, uint32_t y, uint32_t z) {
     return (~(x ^ y) & (x ^ z) & 0x80000000);
 }
 
-CPU::CPU(Bus* bus)
+CPU::CPU(Bus* bus) :
+    gte(this)
 {
     this->bus = bus;
     
@@ -31,8 +34,7 @@ void CPU::tick()
     else {
         printf("0x%x\n", instr.opcode());
         exit(0);
-    }
-         
+    }  
 
     /* Apply pending load delays. */
     handle_load_delay();
@@ -58,7 +60,7 @@ void CPU::reset()
 
 bool CPU::handle_interrupts()
 {
-    uint32_t load = read(current_pc);
+    uint32_t load = read(pc);
     uint32_t instr = load >> 26;
 
     /* If it is a GTE instruction do not execute interrupt! */
@@ -92,7 +94,7 @@ void CPU::fetch()
     addr.raw = pc;
 
     bool kseg1 = KSEG1.contains(pc);
-    if (!kseg1 && cc.is1) {
+    if (/*!kseg1 && cc.is1*/false) {
 
         /* Fetch cache line and check it's validity. */
         CacheLine& line = instr_cache[addr.cache_line];
@@ -133,7 +135,7 @@ void CPU::fetch()
     took_branch = false;
 
     /* Check aligment errors. */
-    if (current_pc % 4 != 0) {
+    if ((current_pc % 4) != 0) {
         cop0.BadA = current_pc;
         
         exception(ExceptionType::ReadError);
@@ -172,13 +174,17 @@ void CPU::exception(ExceptionType code, uint32_t cop)
     cop0.sr.raw &= ~(uint32_t)0x3F;
     cop0.sr.raw |= (mode << 2) & 0x3F;
 
-    uint32_t copy = cop0.cause.raw & 0xff00;
-    cop0.cause.exc_code = (uint32_t)code;
-    //cop0.cause.CE = cop;
+    uint32_t OldCause = cop0.cause.raw & 0xff00;
+    cop0.cause.raw = (uint32_t)code << 2;
+    cop0.cause.raw |= OldCause;
+    cop0.cause.raw |= cop << 28;
+
+    if (code == ExceptionType::IllegalInstr)
+        __debugbreak();
 
     if (code == ExceptionType::Interrupt) {
         cop0.epc = pc;
-        
+        //hack: related to the delay of the ex interrupt
         is_delay_slot = is_branch;
         in_delay_slot_took_branch = took_branch;
     }
@@ -188,16 +194,15 @@ void CPU::exception(ExceptionType code, uint32_t cop)
 
     if (is_delay_slot) {
         cop0.epc -= 4;
-        
-        cop0.cause.BD = true;
+        cop0.cause.raw |= (uint32_t)1 << 31;
         cop0.TAR = pc;
 
         if (in_delay_slot_took_branch) {
-            cop0.cause.BT = true;
+            cop0.cause.raw |= (1 << 30);
         }
     }
-    
-    pc = exception_addr[cop0.sr.BEV];
+
+    pc = exception_addr[cop0.sr.raw & 0x400000 >> 22];
     next_pc = pc + 4;
 }
 
@@ -215,6 +220,20 @@ void CPU::handle_load_delay()
     registers[0] = 0;
 }
 
+void CPU::force_test()
+{
+    if (pc == 0x80030000) {
+        auto info = bus->ram->executable();
+        
+        pc = info.pc;
+        next_pc = pc + 4;
+        
+        registers[28] = info.r28;
+        registers[29] = info.r29_r30;
+        registers[30] = info.r29_r30;
+    }
+}
+
 void CPU::op_bcond()
 {
     is_branch = true;
@@ -227,6 +246,53 @@ void CPU::op_bcond()
     if (should_branch) branch();
 }
 
+void CPU::op_lwc2()
+{
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
+
+    if ((addr & 0x3) == 0) {
+        uint32_t data = read(addr);
+        gte.write_data(instr.rt(), data);
+    }
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::CoprocessorError, instr.id());
+    }
+}
+
+void CPU::op_swc2()
+{
+    uint32_t addr = registers[instr.rs()] + instr.imm_s();
+
+    if ((addr & 0x3) == 0) {
+        bus->write(addr, gte.read_data(instr.rt()));
+    }
+    else {
+        cop0.BadA = addr;
+        exception(ExceptionType::CoprocessorError, instr.id());
+    }
+}
+
+void CPU::op_mfc2()
+{
+    delayedLoad(instr.rt(), gte.read_data(instr.rd()));
+}
+
+void CPU::op_mtc2()
+{
+    gte.write_data(instr.rd(), registers[instr.rt()]);
+}
+
+void CPU::op_cfc2()
+{
+    delayedLoad(instr.rt(), gte.read_control(instr.rd()));
+}
+
+void CPU::op_ctc2()
+{
+    gte.write_control(instr.rd(), registers[instr.rt()]);
+}
+
 void CPU::op_swr()
 {
     uint32_t addr = registers[instr.rs()] + instr.imm_s();
@@ -236,7 +302,8 @@ void CPU::op_swr()
     uint32_t value = 0;
     switch (addr & 0b11) {
     case 0:
-        value = registers[instr.rt()]; break;
+        value = registers[instr.rt()]; 
+        break;
     case 1:
         value = (aligned_load & 0x000000FF) | (registers[instr.rt()] << 8);
         break;
@@ -259,10 +326,18 @@ void CPU::op_swl()
 
     uint32_t value = 0;
     switch (addr & 0b11) {
-    case 0: value = (aligned_load & 0xFFFFFF00) | (registers[instr.rt()] >> 24); break;
-    case 1: value = (aligned_load & 0xFFFF0000) | (registers[instr.rt()] >> 16); break;
-    case 2: value = (aligned_load & 0xFF000000) | (registers[instr.rt()] >> 8); break;
-    case 3: value = registers[instr.rt()]; break;
+    case 0: 
+        value = (aligned_load & 0xFFFFFF00) | (registers[instr.rt()] >> 24); 
+        break;
+    case 1: 
+        value = (aligned_load & 0xFFFF0000) | (registers[instr.rt()] >> 16); 
+        break;
+    case 2: 
+        value = (aligned_load & 0xFF000000) | (registers[instr.rt()] >> 8); 
+        break;
+    case 3: 
+        value = registers[instr.rt()]; 
+        break;
     }
 
     write(aligned_addr, value);
@@ -282,10 +357,18 @@ void CPU::op_lwr()
     }
 
     switch (addr & 0b11) {
-    case 0: value = aligned_load; break;
-    case 1: value = (LRValue & 0xFF000000) | (aligned_load >> 8); break;
-    case 2: value = (LRValue & 0xFFFF0000) | (aligned_load >> 16); break;
-    case 3: value = (LRValue & 0xFFFFFF00) | (aligned_load >> 24); break;
+    case 0: 
+        value = aligned_load; 
+        break;
+    case 1: 
+        value = (LRValue & 0xFF000000) | (aligned_load >> 8); 
+        break;
+    case 2: 
+        value = (LRValue & 0xFFFF0000) | (aligned_load >> 16); 
+        break;
+    case 3: 
+        value = (LRValue & 0xFFFFFF00) | (aligned_load >> 24); 
+        break;
     }
 
     delayedLoad(instr.rt(), value);
@@ -305,12 +388,20 @@ void CPU::op_lwl()
     }
 
     switch (addr & 0b11) {
-    case 0: value = (LRValue & 0x00FFFFFF) | (aligned_load << 24); break;
-    case 1: value = (LRValue & 0x0000FFFF) | (aligned_load << 16); break;
-    case 2: value = (LRValue & 0x000000FF) | (aligned_load << 8); break;
-    case 3: value = aligned_load; break;
+    case 0: 
+        value = (LRValue & 0x00FFFFFF) | (aligned_load << 24); 
+        break;
+    case 1: 
+        value = (LRValue & 0x0000FFFF) | (aligned_load << 16); 
+        break;
+    case 2: 
+        value = (LRValue & 0x000000FF) | (aligned_load << 8); 
+        break;
+    case 3: 
+        value = aligned_load; 
+        break;
     }
-    //Console.WriteLine("case " + (addr & 0b11) + " LWL Value " + value.ToString("x8"));
+ 
     delayedLoad(instr.rt(), value);
 }
 
@@ -395,9 +486,8 @@ void CPU::op_lhu()
 {
     uint32_t addr = registers[instr.rs()] + instr.imm_s();
 
-    if ((addr & 0x1) == 0) {
+    if (addr % 2 == 0) {
         uint32_t value = read<uint16_t>(addr);
-        //Console.WriteLine("LHU: " + addr.ToString("x8") + " value: " + value.ToString("x8"));
         delayedLoad(instr.rt(), value);
     }
     else {
@@ -441,16 +531,16 @@ void CPU::op_mfhi()
 
 void CPU::op_divu()
 {
-    auto dividend = registers[instr.rs()];
-    auto divisor = registers[instr.rt()];
+    uint32_t n = registers[instr.rs()];
+    uint32_t d = registers[instr.rt()];
 
-    if (divisor) {
-        lo = dividend / divisor;
-        hi = dividend % divisor;
+    if (d == 0) {
+        hi = n;
+        lo = 0xFFFFFFFF;
     }
     else {
-        lo = 0xffffffff;
-        hi = dividend;
+        hi = n % d;
+        lo = n / d;
     }
 }
 
@@ -472,24 +562,25 @@ void CPU::op_mflo()
 
 void CPU::op_div()
 {
-    auto dividend = int32_t(registers[instr.rs()]);
-    auto divisor = int32_t(registers[instr.rt()]);
+    int n = (int)registers[instr.rs()];
+    int d = (int)registers[instr.rt()];
 
-    if (dividend == 0x80000000 && divisor == 0xffffffff) {
-        lo = 0x80000000;
+    if (d == 0) {
+        hi = (uint32_t)n;
+        if (n >= 0) {
+            lo = 0xFFFFFFFF;
+        }
+        else {
+            lo = 1;
+        }
+    }
+    else if ((uint32_t)n == 0x80000000 && d == -1) {
         hi = 0;
-    }
-    else if (dividend >= 0 && divisor == 0) {
-        lo = uint32_t(0xffffffff);
-        hi = uint32_t(dividend);
-    }
-    else if (dividend <= 0 && divisor == 0) {
-        lo = uint32_t(0x00000001);
-        hi = uint32_t(dividend);
+        lo = 0x80000000;
     }
     else {
-        lo = uint32_t(dividend / divisor);
-        hi = uint32_t(dividend % divisor);
+        hi = (uint32_t)(n % d);
+        lo = (uint32_t)(n / d);
     }
 }
 

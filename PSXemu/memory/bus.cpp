@@ -1,7 +1,7 @@
 #include "bus.h"
 #include <cpu/cpu.h>
 #include <video/renderer.h>
-#pragma optimize("", off)
+//#pragma optimize("", off)
 
 const Range SYS_CONTROL = Range(0x1f801000, 36);
 const Range RAM_SIZE = Range(0x1f801060, 4);
@@ -32,12 +32,38 @@ uint32_t Bus::physical_addr(uint32_t addr)
     return (addr & region_mask[index]);
 }
 
+std::tuple<uint32_t, uint32_t, uint32_t, uint32_t> Bus::loadEXE(std::string test) {
+	std::ifstream inFile(test, std::ios_base::binary);
+
+	inFile.seekg(0, std::ios_base::end);
+	size_t length = inFile.tellg();
+	inFile.seekg(0, std::ios_base::beg);
+
+	std::vector<uint8_t> exe;
+	exe.reserve(length);
+	std::copy(std::istreambuf_iterator<char>(inFile),
+		std::istreambuf_iterator<char>(),
+		std::back_inserter(exe));
+		
+	uint32_t PC = (uint32_t)exe[0x10];
+	uint32_t R28 = (uint32_t)exe[0x14];
+	uint32_t R29 = (uint32_t)exe[0x30];
+	uint32_t R30 = R29; //base
+	R30 += (uint32_t)exe[0x34]; //offset
+	uint32_t DestAdress = (uint32_t)exe[0x18];
+
+	for (int i = 0; i < exe.size() - 0x800; i++) {
+		uint8_t data = exe[0x800 + i];
+		ram->write<uint8_t>((DestAdress & 0x1FFFFF) + i, data);
+	}
+
+	return std::make_tuple(PC, R28, R29, R30);
+}
+
 void Bus::tick()
 {
-	if (gpu->tick(300)) {
-		gl_renderer->update();
-		cpu->trigger(Interrupt::VBLANK);
-	}
+	dma.tick();
+	cddrive.step();
 
 	for (int i = 0; i < 3; i++) {
 		timers[i].tick(300);
@@ -45,8 +71,11 @@ void Bus::tick()
 	}
 
 	controller.tick();
-	cddrive.step();
-	dma.tick();
+
+	if (gpu->tick(300)) {
+		gl_renderer->update(this);
+		irq(Interrupt::VBLANK);
+	}
 }
 
 void Bus::irq(Interrupt interrupt) {
@@ -60,6 +89,10 @@ T Bus::read(uint32_t addr)
 		printf("Unaligned read at address: 0x%x\n", addr);
 		exit(0);
 	}
+	
+	if (addr == 0x1f801014) {
+		return 0;
+	}
 
 	/* Map the memory ranges. */
 	uint32_t abs_addr = physical_addr(addr);
@@ -72,6 +105,9 @@ T Bus::read(uint32_t addr)
 	}
 	else if (BIOS.contains(abs_addr)) {
 		return bios->read<T>(abs_addr);
+	}
+	else if (SCRATCHPAD.contains(abs_addr)) {
+		return 0;
 	}
 	else if (EXPANSION_1.contains(abs_addr)) {
 		return 0xff;
@@ -93,14 +129,23 @@ T Bus::read(uint32_t addr)
 		return dma.read(abs_addr);
 	}
 	else if (SPU_RANGE.contains(abs_addr)) {
-		return 0;
+		uint32_t off = SPU_RANGE.offset(abs_addr);
+		if (std::is_same<T, uint8_t>::value) {
+			return registers.byte[off];
+		}
+		else if (std::is_same<T, uint16_t>::value) {
+			return registers.half[off / 2];
+		}
+		else {
+			return registers.word[off / 4];
+		}
 	}
 	else if (INTERRUPT.contains(abs_addr)) {
 		return cpu->read_irq(abs_addr);
 	}
 
 	printf("Unhandled read to address: 0x%x\n", addr);
-	exit(0);
+	//exit(0);
 	return 0;
 }
 
@@ -110,6 +155,10 @@ void Bus::write(uint32_t addr, T data)
 	if (addr % sizeof(T) != 0) {
 		printf("Unaligned write to address: 0x%x\n", addr);
 		exit(0);
+	}
+
+	if (addr == 0x1f801014) {
+		return;
 	}
 
 	/* Map the memory ranges. */
@@ -122,6 +171,17 @@ void Bus::write(uint32_t addr, T data)
 		return;
 	}
 	else if (SPU_RANGE.contains(abs_addr)) {
+		uint32_t off = SPU_RANGE.offset(abs_addr);
+		if (std::is_same<T, uint8_t>::value) {
+			registers.byte[off] = data;
+		}
+		else if (std::is_same<T, uint16_t>::value) {
+			registers.half[off / 2] = data;
+		}
+		else {
+			registers.word[off / 4] = data;
+		}
+
 		return;
 	}
 	else if (GPU_RANGE.contains(abs_addr)) {
@@ -129,6 +189,9 @@ void Bus::write(uint32_t addr, T data)
 	}
 	else if (PAD_MEMCARD.contains(abs_addr)) {
 		return controller.write<T>(abs_addr, data);
+	}
+	else if (SCRATCHPAD.contains(abs_addr)) {
+		return scratchpad.write<T>(abs_addr, data);
 	}
 	else if (CDROM.contains(abs_addr)) {
 		if (std::is_same<T, uint8_t>::value)
@@ -154,7 +217,7 @@ void Bus::write(uint32_t addr, T data)
 	}
 
 	printf("Unhandled write to address: 0x%x\n", addr);
-	exit(0);
+	//exit(0);
 }
 
 /* Template definitions. */
