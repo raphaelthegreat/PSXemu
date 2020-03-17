@@ -12,7 +12,6 @@ const Range EXPANSION_1 = Range(0x1f000000, 512 * 1024);
 const Range TIMERS = Range(0x1f801100, 0x30);
 const Range PAD_MEMCARD = Range(0x1f801040, 15);
 const Range CDROM = Range(0x1f801800, 0x4);
-const Range DMA_RANGE = Range(0x1f801080, 0x80);
 
 Bus::Bus(std::string bios_path, Renderer* renderer) :
 	dma(this)
@@ -132,7 +131,7 @@ T Bus::read(uint32_t addr)
 		return controller.read<T>(abs_addr);
 	}
 	else if (DMA_RANGE.contains(abs_addr)) {
-		return dma.read<T>(abs_addr);
+		return dma.read(abs_addr);
 	}
 	else if (SPU_RANGE.contains(abs_addr)) {
 		uint32_t off = SPU_RANGE.offset(abs_addr);
@@ -203,7 +202,7 @@ void Bus::write(uint32_t addr, T data)
 			return cddrive.write_reg(abs_addr, data);
 	}
 	else if (DMA_RANGE.contains(abs_addr)) {
-		return dma.write<T>(abs_addr, data);
+		return dma.write(abs_addr, data);
 	}
 	else if (RAM.contains(abs_addr)) {
 		return ram->write<T>(abs_addr, data);

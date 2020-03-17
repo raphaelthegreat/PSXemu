@@ -1,192 +1,296 @@
 #include "dma.h"
-#include "bus.h"
+#include <bitset>
+#include <video/gpu_core.h>
+#include <cpu/util.h>
+#include <memory/bus.h>
 
-bool DmaChannel::active() const {
-    const auto enable = m_channel_control.enable;
-
-    if (sync_mode() == SyncMode::Manual) {
-        const auto trigger = m_channel_control.manual_trigger;
-        return enable && trigger;
-    }
-    else
-        return enable;
+/* DMA Controller class implementation. */
+DMAController::DMAController(Bus* _bus)
+{
+	control = 0x07654321;
+	irq.raw = 0;
+	bus = _bus;
 }
 
-u32 DmaChannel::transfer_word_count() {
-    const auto manual = m_block_control.manual;
-    const auto request = m_block_control.request;
-
-    switch (sync_mode()) {
-    case DmaChannel::SyncMode::Manual: return manual.word_count;
-    case DmaChannel::SyncMode::Request: return request.block_size * request.block_count;
-    case DmaChannel::SyncMode::LinkedList:
-        // fallthrough
-    default:
-       // LOG_ERROR("Invalid sync mode");
-        assert(0);
-        return 0;
-    }
+void DMAController::tick()
+{
+	if (irq_pending) {
+		irq_pending = false;
+		bus->irq(Interrupt::DMA);
+	}
 }
 
-void DmaChannel::transfer_finished() {
-    m_channel_control.enable = false;
-    m_channel_control.manual_trigger = false;
+void DMAController::transfer_finished(DMAChannels dma_channel)
+{
+	DMAChannel& channel = channels[(int)dma_channel];
 
-    // TODO: interrupts
+	/* IRQ flags in Bit(24+n) are set upon DMAn completion -
+	but caution - they are set ONLY if enabled in Bit(16+n).*/
+	if (get_bit(irq.enable, (int)dma_channel) || irq.master_enable)
+		irq.flags = set_bit(irq.flags, (int)dma_channel, true);
+
+	/* The master flag is a simple readonly flag that follows the following rules:
+	   IF b15=1 OR (b23=1 AND (b16-22 AND b24-30)>0) THEN b31=1 ELSE b31=0
+	   Upon 0-to-1 transition of Bit31, the IRQ3 flag (in Port 1F801070h) gets set.
+	   Bit24-30 are acknowledged (reset to zero) when writing a "1" to that bits */
+	bool previous = irq.master_flag;
+	irq.master_flag = irq.force || (irq.master_enable && ((irq.enable & irq.flags) > 0));
+
+	if (irq.master_flag && !previous) {
+		irq_pending = true;
+	}
 }
 
-constexpr u32 RAM_ADDR_MASK = 0x1FFFFC;
+void DMAController::start(DMAChannels dma_channel)
+{
+	DMAChannel& channel = channels[(uint32_t)dma_channel];
+	if (channel.control.sync_mode == SyncType::Linked_List)
+		/* Start linked list copy routine. */
+		list_copy(dma_channel);
+	else
+		/* Start block copy routine. */
+		block_copy(dma_channel);
 
-DmaChannel const& DMAController::channel_control(DmaPort port) const {
-    const auto port_index = (u32)port;
-    assert(port_index < 7);
-    return m_channels[port_index];
+	/* Complete the transfer. */
+	transfer_finished(dma_channel);
 }
 
-DmaChannel& DMAController::channel_control(DmaPort port) {
-    const auto port_index = (u32)port;
-    assert(port_index < 7);
-    return m_channels[port_index];
+void DMAController::block_copy(DMAChannels dma_channel)
+{
+	/* Get the channel to start the transfer. */
+	DMAChannel& channel = channels[(uint32_t)dma_channel];
+
+	/* Necessary data we need to start. */
+	uint32_t trans_dir = channel.control.trans_dir;
+	SyncType sync_mode = channel.control.sync_mode;
+	uint32_t step_mode = channel.control.addr_step;
+
+	/* Get base address of the transfer. */
+	uint32_t base_addr = channel.base;
+
+	/* Set steping mode (increment or decrement at every step). */
+	int32_t increment = 0;
+	switch (step_mode) {
+	case 0:
+		increment = 4;
+		break;
+	case 1:
+		increment = -4;
+		break;
+	}
+
+	/* Get the amout of bytes each data must be interpreted as. */
+	/* This is different between sync modes.
+	   For Manual SyncMode:
+			bits 0-15 -> number of blocks (block_size)
+			bis 16-31 -> unused
+	   For Request SyncMode:
+			bits 0-15 -> size of each block (block_size)
+			bits 16-31 -> number of blocks  (block_count)
+			(So we need to do block_size * block_count to get total number of bytes)
+	   For Linked List SyncMode
+			bits 0-31 -> unused
+	*/
+	uint32_t block_size = channel.block.block_size;
+	if (sync_mode == SyncType::Request)
+		block_size *= channel.block.block_count;
+
+	/* Transfer the remaining blocks. */
+	while (block_size > 0) {
+		uint32_t addr = base_addr & 0x1ffffc;
+
+		/* Select transfer source and destination. */
+		switch (trans_dir) {
+		case 0: {
+			uint32_t data = 0;
+
+			switch (dma_channel) {
+			case DMAChannels::OTC:
+				data = (block_size == 1 ? 0xffffff :
+					(addr - 4) & 0x1fffff);
+				break;
+			case DMAChannels::GPU:
+				data = bus->gpu->data();
+				break;
+			case DMAChannels::CDROM:
+				data = bus->cddrive.read_word();
+				break;
+			default:
+				printf("Unhandled DMA source channel: 0x%x\n", dma_channel);
+				__debugbreak();
+			}
+
+			bus->write(addr, data);
+			break;
+		}
+		case 1: {
+			uint32_t command = bus->read(addr);
+
+			/* Send command or operand to the GPU. */
+			switch (dma_channel) {
+			case DMAChannels::GPU:
+				bus->gpu->gp0(command);
+				break;
+			default:
+				//printf("[Block copy] Unhandled DMA source channel: 0x%x\n", dma_channel);
+				break;
+			}
+			break;
+		}
+		}
+
+		/* Step to the next block. */
+		base_addr += increment;
+		/* Decrement the remaing blocks. */
+		block_size--;
+	}
+
+	/* Complete DMA Transfer */
+	channel.control.enable = false;
+	channel.control.trigger = false;
 }
 
-void DMAController::tick() {
-    if (m_irq_pending) {
-        m_irq_pending = false;
-        bus->irq(Interrupt::DMA);
-    }
+void DMAController::list_copy(DMAChannels dma_channel)
+{
+	DMAChannel& channel = channels[(uint32_t)dma_channel];
+	uint32_t addr = channel.base & 0x1ffffe;
+
+	/* TODO: implement Device to Ram DMA transfer. */
+	if (channel.control.trans_dir == 0) {
+		printf("Not supported DMA direction!\n");
+		__debugbreak();
+	}
+
+	/* While not reached the end. */
+	while (true) {
+		/* Get the list packet header. */
+		ListPacket packet;
+		packet.raw = bus->read(addr);
+		uint32_t count = packet.size;
+
+		/*if (count > 0)
+			printf("Packet size: %d\n", count);*/
+
+			/* Read words of the packet. */
+		while (count > 0) {
+			/* Point to next packet address. */
+			addr = (addr + 4) & 0x1ffffc;
+
+			/* Get command from main RAM. */
+			uint32_t command = bus->read(addr);
+
+			/* Send data to the GPU. */
+			bus->gpu->gp0(command);
+			count--;
+		}
+
+		/* If address is 0xffffff then we are done. */
+		/* NOTE: mednafen only checks for the MSB, but I do no know why. */
+		if (get_bit(packet.next_addr, 23))
+			break;
+
+		/* Mask address. */
+		addr = packet.next_addr & 0x1ffffc;
+	}
+
+	/* Complete DMA Transfer */
+	channel.control.enable = false;
+	channel.control.trigger = false;
 }
 
-void DMAController::do_transfer(DmaPort port) {
-    auto& channel = channel_control(port);
+uint32_t DMAController::read(uint32_t address)
+{
+	uint32_t off = address - DMA_RANGE.start;
 
-    switch (channel.sync_mode()) {
-    case DmaChannel::SyncMode::Manual:
-    case DmaChannel::SyncMode::Request: do_block_transfer(port); break;
-    case DmaChannel::SyncMode::LinkedList: do_linked_list_transfer(port); break;
-    //default: LOG_ERROR("Invalid sync mode"); assert(0);
-    }
+	/* Get channel information from address. */
+	uint32_t channel_num = (off & 0x70) >> 4;
+	uint32_t offset = off & 0xf;
+
+	/* One of the main channels is enabled. */
+	if (channel_num >= 0 && channel_num <= 6) {
+		DMAChannel& channel = channels[channel_num];
+
+		switch (offset) {
+		case 0:
+			return channel.base;
+		case 4:
+			return channel.block.raw;
+		case 8:
+			return channel.control.raw;
+		default:
+			printf("Unhandled DMA read at offset: 0x%x\n", off);
+			__debugbreak();
+		}
+	} /* One of the primary registers is selected. */
+	else if (channel_num == 7) {
+
+		switch (offset) {
+		case 0:
+			return control;
+		case 4:
+			return irq.raw;
+		default:
+			printf("Unhandled DMA read at offset: 0x%x\n", off);
+			__debugbreak();
+		}
+	}
+
+	return 0;
 }
 
-void DMAController::do_block_transfer(DmaPort port) {
-    auto& channel = channel_control(port);
+void DMAController::write(uint32_t address, uint32_t val)
+{
+	uint32_t off = address - DMA_RANGE.start;
 
-    const s32 addr_step =
-        (channel.memory_address_step() == DmaChannel::MemoryAddressStep::Forward) ? 4 : -4;
+	/* Get channel information from address. */
+	uint32_t channel_num = (off & 0x70) >> 4;
+	uint32_t offset = off & 0xf;
 
-    address addr = channel.m_base_addr;
+	uint32_t active_channel = INT_MAX;
+	/* One of the main channels is enabled. */
+	if (channel_num >= 0 && channel_num <= 6) {
+		DMAChannel& channel = channels[channel_num];
 
-    u32 transfer_word_count = channel.transfer_word_count();
+		switch (offset) {
+		case 0:
+			channel.base = val & 0xffffff;
+			break;
+		case 4:
+			channel.block.raw = val;
+			break;
+		case 8:
+			channel.control.raw = val;
+			break;
+		default:
+			printf("Unhandled DMA channel write at offset: 0x%x\n", off);
+			__debugbreak();
+		}
 
-   //LOG_DEBUG("Starting DMA block transfer: {} {} RAM, sync mode: {}", dma_port_to_str(port),
-    //    channel.to_ram() ? "to" : "from", channel.sync_mode_str());
+		/* Check if the channel was just activated. */
+		bool trigger = true;
+		if (channel.control.sync_mode == SyncType::Manual)
+			trigger = channel.control.trigger;
 
-    // TODO: optimize for the few combinations that are actually used
+		if (channel.control.enable && trigger)
+			active_channel = channel_num;
+	}/* One of the primary registers is selected. */
+	else if (channel_num == 7) {
 
-    while (transfer_word_count > 0) {
-        const auto addr_cur = addr & RAM_ADDR_MASK;
+		switch (offset) {
+		case 0:
+			control = val;
+			break;
+		case 4:
+			irq.raw = val;
+			irq.master_flag = irq.force || (irq.master_enable && ((irq.enable & irq.flags) > 0));
+			break;
+		default:
+			printf("Unhandled DMA write at offset: 0x%x\n", off);
+			__debugbreak();
+		}
+	}
 
-        switch (channel.transfer_direction()) {
-        case DmaChannel::TransferDirection::ToRam: {
-            u32 src_word{};
-
-            switch (port) {
-            case DmaPort::MdecOut:
-                // TODO
-                //LOG_INFO("DMA transfer of word 0x{:08X} to MDEC-Out port", src_word);
-                break;
-                // Not supposed to read from anywhere for OTC, values are specific and depend on the address
-            case DmaPort::Otc:
-                if (transfer_word_count == 1)
-                    // Last OTC entry contains the "End of table" marker
-                    src_word = 0xFFFFFF;
-                else
-                    // Each of the rest of the entries points to the previous one
-                    src_word = (addr - 4) & RAM_ADDR_MASK;
-                break;
-            case DmaPort::Gpu:
-                src_word = bus->gpu->data();
-                break;
-            case DmaPort::Cdrom: src_word = bus->cddrive.read_word(); break;
-            //default: LOG_WARN("DMA transfer to unimplemented port {} requested", static_cast<u8>(port));
-            }
-            bus->write<u32>(addr_cur, src_word);
-            break;
-        }
-        case DmaChannel::TransferDirection::FromRam: {
-            u32 src_word = bus->read<u32>(addr_cur);
-
-            switch (port) {
-            case DmaPort::MdecIn:
-                // TODO
-                //LOG_INFO("DMA transfer of word 0x{:08X} to MDEC-In port", src_word);
-                break;
-            case DmaPort::Gpu:
-                // Send packet (which is part of a GP0 command, likely data) to the GPU
-                bus->gpu->gp0(src_word);
-                break;
-            case DmaPort::Spu:
-                // TODO
-                //LOG_INFO("DMA transfer of word 0x{:08X} to SPU port", src_word);
-                break;
-            default: {
-
-            }
-                
-            }
-            break;
-        }
-        //default: LOG_ERROR("Invalid DMA transfer direction"); assert(0);
-        }
-        addr += addr_step;
-        transfer_word_count -= 1;
-    }
-
-    transfer_finished(channel, port);
-}
-
-void DMAController::do_linked_list_transfer(DmaPort port) {
-    auto& channel = channel_control(port);
-
-    assert(channel.transfer_direction() == DmaChannel::TransferDirection::FromRam);
-    assert(port == DmaPort::Gpu);
-
-    address addr = channel.m_base_addr & RAM_ADDR_MASK;
-
-    //LOG_DEBUG("Starting DMA linked list transfer: RAM to GPU");
-
-    while (true) {  // for each packet in the linked list
-        const u32 packet_header = bus->read<u32>(addr);
-        auto packet_word_count = packet_header >> 24;
-
-       // if (packet_word_count > 0)
-            //LOG_DEBUG("GPU packet at {:08X} (words: {})", addr, packet_word_count);
-
-        while (packet_word_count > 0) {
-            addr = (addr + 4) & RAM_ADDR_MASK;
-            const u32 packet_data = bus->read<u32>(addr);
-
-            // Send packet (which is a GP0 command) to the GPU
-            bus->gpu->gp0(packet_data);
-
-            packet_word_count -= 1;
-        }
-
-        // Only check the top bit instead of the whole marker, that's what the hardware does
-        if ((packet_header & 0x800000) != 0)
-            break;
-
-        addr = packet_header & RAM_ADDR_MASK;
-    }
-    transfer_finished(channel, port);
-}
-
-void DMAController::transfer_finished(DmaChannel& channel, DmaPort port) {
-    channel.transfer_finished();
-
-    bool is_enabled = m_reg_interrupt.is_port_enabled(port);
-
-    if (is_enabled) {
-        m_reg_interrupt.set_port_flags(port, true);
-        m_irq_pending = m_reg_interrupt.get_irq_master_flag();
-    }
+	/* Start DMA if a channel was just activated. */
+	if (active_channel != INT_MAX)
+		start((DMAChannels)active_channel);
 }
