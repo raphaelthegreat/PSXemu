@@ -34,7 +34,7 @@ void CPU::tick()
     else {
         printf("0x%x\n", instr.opcode());
         exit(0);
-    }
+    }  
 
     /* Apply pending load delays. */
     handle_load_delay();
@@ -60,7 +60,7 @@ void CPU::reset()
 
 bool CPU::handle_interrupts()
 {
-    uint32_t load = read(current_pc);
+    uint32_t load = read(pc);
     uint32_t instr = load >> 26;
 
     /* If it is a GTE instruction do not execute interrupt! */
@@ -135,7 +135,7 @@ void CPU::fetch()
     took_branch = false;
 
     /* Check aligment errors. */
-    if (current_pc % 4 != 0) {
+    if ((current_pc % 4) != 0) {
         cop0.BadA = current_pc;
         
         exception(ExceptionType::ReadError);
@@ -174,13 +174,17 @@ void CPU::exception(ExceptionType code, uint32_t cop)
     cop0.sr.raw &= ~(uint32_t)0x3F;
     cop0.sr.raw |= (mode << 2) & 0x3F;
 
-    uint32_t copy = cop0.cause.raw & 0xff00;
-    cop0.cause.exc_code = (uint32_t)code;
-    cop0.cause.CE = cop;
+    uint32_t OldCause = cop0.cause.raw & 0xff00;
+    cop0.cause.raw = (uint32_t)code << 2;
+    cop0.cause.raw |= OldCause;
+    cop0.cause.raw |= cop << 28;
+
+    if (code == ExceptionType::IllegalInstr)
+        __debugbreak();
 
     if (code == ExceptionType::Interrupt) {
         cop0.epc = pc;
-        
+        //hack: related to the delay of the ex interrupt
         is_delay_slot = is_branch;
         in_delay_slot_took_branch = took_branch;
     }
@@ -190,19 +194,15 @@ void CPU::exception(ExceptionType code, uint32_t cop)
 
     if (is_delay_slot) {
         cop0.epc -= 4;
-        
-        cop0.cause.BD = true;
+        cop0.cause.raw |= (uint32_t)1 << 31;
         cop0.TAR = pc;
 
         if (in_delay_slot_took_branch) {
-            cop0.cause.BT = true;
+            cop0.cause.raw |= (1 << 30);
         }
     }
-    
-    is_delay_slot = false;
-    in_delay_slot_took_branch = false;
 
-    pc = exception_addr[cop0.sr.BEV];
+    pc = exception_addr[cop0.sr.raw & 0x400000 >> 22];
     next_pc = pc + 4;
 }
 

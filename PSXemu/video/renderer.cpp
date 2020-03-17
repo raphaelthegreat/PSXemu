@@ -37,12 +37,12 @@ Renderer::Renderer(int _width, int _height, std::string title)
 
     /* Define screen quad vertices. */
     float vertices[] = {
-          1.0f, -1.0f, 1.0f, 1.0f,
-         -1.0f, -1.0f, 0.0f, 1.0f,
+          1.0f, -1.0f, 0.3125f, 0.46875f,
+         -1.0f, -1.0f, 0.0f, 0.46875f,
          -1.0f,  1.0f, 0.0f, 0.0f,
 
-          1.0f,  1.0f, 1.0f, 0.0f,
-          1.0f, -1.0f, 1.0f, 1.0f,
+          1.0f,  1.0f, 0.3125f, 0.0f,
+          1.0f, -1.0f, 0.3125f, 0.46875f,
          -1.0f,  1.0f, 0.0f, 0.0f
     };
 
@@ -88,21 +88,18 @@ void Renderer::draw_scene()
     /* Update the display texture */
     screen_texture->update(&pixels.front());
     
+    shader->bind();
+    screen_texture->bind();
+    glBindVertexArray(screen_vao);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
     pixels.clear();
 }
 
 void Renderer::update(Bus* bus)
 {
-    debug_gui.start();
-    
     glfwPollEvents();
     draw_scene();
-
-    debug_gui.dockspace();
-    debug_gui.cpu_regs(bus->cpu);
-    debug_gui.decompiler(bus->cpu);
-    debug_gui.viewport(screen_texture->texture_id);
-    debug_gui.display();
 
     glfwSwapBuffers(window);
     glClear(GL_COLOR_BUFFER_BIT);

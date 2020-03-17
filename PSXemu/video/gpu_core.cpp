@@ -97,33 +97,7 @@ void GPU::write(uint32_t address, uint32_t data) {
 
 void GPU::register_commands()
 {
-    /* Create a lookup table with all registered commands. */
-    gp0_lookup[Nop] = BIND(gp0_nop);
-    gp0_lookup[Clear_Cache] = BIND(gp0_clear_cache);
-    gp0_lookup[Fill_Rect] = BIND(gp0_fill_rect);
-    gp0_lookup[Mono_Quad] = BIND(gp0_mono_quad);
-    gp0_lookup[Shaded_Quad_Blend] = BIND(gp0_shaded_quad_blend);
-    gp0_lookup[Shaded_Quad] = BIND(gp0_shaded_quad);
-    gp0_lookup[Shaded_Quad_Raw_Texture] = BIND(gp0_shaded_quad_blend);
-    gp0_lookup[Shaded_Triangle] = BIND(gp0_shaded_trig);
-    gp0_lookup[Mono_Quad_Dot] = BIND(gp0_pixel);
-    gp0_lookup[Textured_Rect_Opaque] = BIND(gp0_textured_rect_opaque);
-    gp0_lookup[Image_Load] = BIND(gp0_image_load);
-    gp0_lookup[Image_Store] = BIND(gp0_image_store);
-    gp0_lookup[Texture_Window_Setting] = BIND(gp0_texture_window_setting);
-    gp0_lookup[Drawing_Offset] = BIND(gp0_drawing_offset);
-    gp0_lookup[Draw_Area_Bottom_Right] = BIND(gp0_draw_area_bottom_right);
-    gp0_lookup[Draw_Area_Top_Left] = BIND(gp0_draw_area_top_left);
-    gp0_lookup[Draw_Mode_Setting] = BIND(gp0_draw_mode);
-    gp0_lookup[Mask_Bit_Setting] = BIND(gp0_mask_bit_setting);
-    gp0_lookup[Shaded_Quad_Semi_Transparent_Raw_Texture] = BIND(gp0_shaded_quad_blend);
-    gp0_lookup[Mono_Rect_16] = BIND(gp0_mono_rect_16);
-    gp0_lookup[Mono_Trig] = BIND(gp0_mono_trig);
-    gp0_lookup[Shaded_Textured_Quad_Blend] = BIND(gp0_shaded_textured_quad_blend);
-    gp0_lookup[Mono_Rect] = BIND(gp0_mono_rect);
-    gp0_lookup[Textured_Rect_Semi_Transparent] = BIND(gp0_textured_rect_opaque);
-    gp0_lookup[Mono_Quad_Transparent] = BIND(gp0_mono_quad);
-    gp0_lookup[Textured_Rect_16_Blending] = BIND(gp0_textured_rect_16);
+
 }
 
 uint16_t GPU::vram_transfer() {
@@ -149,6 +123,29 @@ uint16_t GPU::vram_transfer() {
     }
 
     return data;
+}
+
+void GPU::vram_to_vram_transfer()
+{
+    auto src_coord = state.fifo[1];
+    auto dest_coord = state.fifo[2];
+    auto dim = state.fifo[3];
+
+    glm::ivec2 src = unpack_point(src_coord);
+    glm::ivec2 dest = unpack_point(dest_coord);
+    glm::ivec2 size = unpack_point(dim);
+    
+    for (int y = 0; y < size.y; y++) {
+        for (int x = 0; x < size.x; x++) {            
+            int sx = (src.x + x) % 1024;
+            int sy = (src.y + y) % 512;         
+            auto data = vram.read(sx, sy);
+
+            int dx = (dest.x + x) % 1024;
+            int dy = (dest.y + y) % 512;
+            vram.write(dx, dy, data);
+        }
+    }
 }
 
 void GPU::vram_transfer(uint16_t data) {

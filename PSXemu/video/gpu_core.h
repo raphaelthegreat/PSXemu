@@ -56,11 +56,13 @@ enum GP0Command {
     Shaded_Quad = 0x38,
     Shaded_Textured_Quad_Blend = 0x3c,
     Mono_Rect = 0x60,
+    Textured_Rect_Blend = 0x64,
     Textured_Rect_Opaque = 0x65,
     Textured_Rect_Semi_Transparent = 0x66,
     Mono_Quad_Dot = 0x68,
     Mono_Rect_16 = 0x78,
     Textured_Rect_16_Blending = 0x7c,
+    Image_Transfer = 0x80,
     Image_Load = 0xa0,
     Image_Store = 0xc0,
     Texture_Window_Setting = 0xe2,
@@ -166,6 +168,8 @@ union Point2D {
     uint32_t val;
 
     struct { int16_t x, y; };
+
+    operator glm::ivec2() { return glm::ivec2(x, y); }
 };
 
 union TextureData {
@@ -200,8 +204,8 @@ public:
     void register_commands();
 
     Pixel create_pixel(uint32_t point, uint32_t color, uint32_t coord = 0);
-    glm::ivec3 unpack_color(uint32_t color);
-    glm::ivec2 unpack_point(uint32_t point);
+    static glm::ivec3 unpack_color(uint32_t color);
+    static glm::ivec2 unpack_point(uint32_t point);
     uint16_t fetch_texel(glm::ivec2 p, glm::uvec2 uv, glm::uvec2 clut);
 
     uint32_t data();
@@ -216,9 +220,11 @@ public:
 
     void vram_transfer(uint16_t data);
     uint16_t vram_transfer();
+    void vram_to_vram_transfer();
 
+    int getTexel(int x, int y, Point2D clut, Point2D textureBase, int depth);
     void rasterizeRect(Point2D vec[], TextureData t, uint32_t c, uint16_t palette, uint32_t texpage, Primitive primitive);
-
+    void rasterizeTri(Point2D v0, Point2D v1, Point2D v2, TextureData t0, TextureData t1, TextureData t2, uint32_t c0, uint32_t c1, uint32_t c2, uint32_t palette, uint32_t texpage, Primitive primitive);
 
     void gp0_nop();
     void gp0_mono_trig();

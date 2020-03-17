@@ -24,10 +24,10 @@ void PSX::tick()
 {	
 	for (int i = 0; i < 100; i++) {
 		cpu->tick();
+		cpu->handle_interrupts();
 	}
 
 	bus->tick();
-	cpu->handle_interrupts();
 }
 
 void PSX::key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)

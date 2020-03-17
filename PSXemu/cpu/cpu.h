@@ -129,23 +129,23 @@ template<typename T>
 inline void CPU::write(uint32_t addr, T data)
 {
     if (cop0.sr.IsC) {
-        //CacheControl& cc = bus->cache_ctrl;
+        CacheControl& cc = bus->cache_ctrl;
 
-        //Address address;
-        //address.raw = addr;
+        Address address;
+        address.raw = addr;
 
-        ///* Check if caching is enabled. */
-        //if (!cc.is1) {
-        //    return;
-        //}
+        /* Check if caching is enabled. */
+        if (!cc.is1) {
+            return;
+        }
 
-        //CacheLine& line = instr_cache[address.cache_line];
+        CacheLine& line = instr_cache[address.cache_line];
 
-        ///* Invalid cache line if TAG test is enabled. */
-        //if (cc.tag) /* Invalidate by pushing index out of range. */
-        //    line.tag.index = 4;
-        //else /* Write to cache. */
-        //    line.instrs[address.index].value = data;
+        /* Invalid cache line if TAG test is enabled. */
+        if (cc.tag) /* Invalidate by pushing index out of range. */
+            line.tag.index = 4;
+        else /* Write to cache. */
+            line.instrs[address.index].value = data;
 
         return;
     }

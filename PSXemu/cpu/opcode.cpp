@@ -2,10 +2,13 @@
 #include <functional>
 
 #define BIND_CPU(x) std::bind(&CPU::x, this)
+#pragma optimize("", off)
 
 void CPU::op_special()
 {
-	auto& handler = special[instr.function()];
+	auto func = instr.function();
+
+	auto& handler = special[func];
 	handler();
 }
 
@@ -15,25 +18,29 @@ void CPU::op_cop0()
 	case 0b00000: op_mfc0(); break;
 	case 0b00100: op_mtc0(); break;
 	case 0b10000: op_rfe(); break;
-	default: exception(ExceptionType::IllegalInstr, instr.id()); break;
+	default: exception(ExceptionType::IllegalInstr); break;
 	}
 }
 
 void CPU::op_cop2()
 {
-	switch (instr.rs() & 0x10) {
-	case 0x00:
-		switch (instr.rs()) {
-		case 0b00000: op_mfc2(); break;
-		case 0b00010: op_cfc2(); break;
-		case 0b00100: op_mtc2(); break;
-		case 0b00110: op_ctc2(); break;
-		default: exception(ExceptionType::IllegalInstr, instr.id()); break;
+	uint32_t rs = instr.rs();
+
+	switch (rs & 0x10) {
+	case 0x00: {
+		switch (rs) {
+		case 0b00000: { op_mfc2(); break; }
+		case 0b00010: { op_cfc2(); break; }
+		case 0b00100: { op_mtc2(); break; }
+		case 0b00110: { op_ctc2(); break; }
+		default: { printf("Ill\n"); exception(ExceptionType::IllegalInstr); break; }
 		}
 		break;
-	case 0x10:
+	}
+	case 0x10: {
 		gte.execute(instr);
 		break;
+	}
 	}
 }
 
