@@ -1,2 +1,0 @@
-armips RenderTexturePolygonCLUT4BPP.asm
-bin2exe.py RenderTexturePolygonCLUT4BPP.bin RenderTexturePolygonCLUT4BPP.exe

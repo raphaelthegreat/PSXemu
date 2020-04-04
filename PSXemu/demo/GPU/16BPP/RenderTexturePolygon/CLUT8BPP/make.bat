@@ -1,2 +1,0 @@
-armips RenderTexturePolygonCLUT8BPP.asm
-bin2exe.py RenderTexturePolygonCLUT8BPP.bin RenderTexturePolygonCLUT8BPP.exe

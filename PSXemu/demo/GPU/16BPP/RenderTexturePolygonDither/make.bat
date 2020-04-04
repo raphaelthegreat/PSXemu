@@ -1,2 +1,0 @@
-armips RenderTexturePolygon15BPPDither.asm
-bin2exe.py RenderTexturePolygon15BPPDither.bin RenderTexturePolygon15BPPDither.exe

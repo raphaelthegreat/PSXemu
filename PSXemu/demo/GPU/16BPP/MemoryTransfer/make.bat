@@ -1,2 +1,0 @@
-armips MemoryTransfer16BPP.asm
-bin2exe.py MemoryTransfer16BPP.bin MemoryTransfer16BPP.exe

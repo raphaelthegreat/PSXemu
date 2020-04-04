@@ -1,2 +1,0 @@
-armips RenderTextureRectangleMASK15BPP.asm
-bin2exe.py RenderTextureRectangleMASK15BPP.bin RenderTextureRectangleMASK15BPP.exe

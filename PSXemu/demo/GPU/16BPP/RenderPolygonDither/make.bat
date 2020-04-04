@@ -1,2 +1,0 @@
-armips RenderPolygonDither16BPP.asm
-bin2exe.py RenderPolygonDither16BPP.bin RenderPolygonDither16BPP.exe
