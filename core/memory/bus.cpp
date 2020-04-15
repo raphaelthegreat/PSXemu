@@ -4,6 +4,8 @@
 #include <glad/glad.h>
 #include <video/renderer.h>
 #include <cpu/cpu.h>
+#include <sound/spu.hpp>
+#include <memory/expansion2.hpp>
 
 std::vector<ubyte> load_file(fs::path const& filepath) 
 {
@@ -34,6 +36,8 @@ Bus::Bus(const std::string& bios_path)
 	renderer = std::make_unique<Renderer>(1024, 512, "Playstation 1 emulator", this);
 	cpu = std::make_shared<CPU>(this);
 	gpu = std::make_unique<GPU>(renderer.get());
+	spu = std::make_shared<SPU>(this);
+	exp2 = std::make_shared<Expansion2>(this);
 
 	/* Construct peripherals. */
 	timers[0] = std::make_unique<Timer>(TimerID::TMR0, this);
@@ -191,10 +195,6 @@ T Bus::read(uint addr)
 	else if (EXPANSION_1.contains(abs_addr)) {
 		return 0xff;
 	}
-	else if (EXPANSION_2.contains(abs_addr)) {
-		int offset = EXPANSION_2.offset(abs_addr);
-		return util::read_memory<T>(ex1, offset);
-	}
 	else if (CDROM.contains(abs_addr)) {
 		if (std::is_same<T, ubyte>::value)
 			return cddrive->read(abs_addr);
@@ -208,12 +208,11 @@ T Bus::read(uint addr)
 	else if (DMA_RANGE.contains(abs_addr)) {
 		return dma->read(abs_addr);
 	}
+	else if (SPU_RANGE.contains(abs_addr)) {
+		return spu->read<T>(abs_addr);
+	}
 	else if (RAM_SIZE.contains(abs_addr)) {
 		return 0;
-	}
-	else if (SPU_RANGE.contains(abs_addr)) {
-		int offset = SPU_RANGE.offset(abs_addr);
-		return util::read_memory<T>(registers, offset);
 	}
 	else if (INTERRUPT.contains(abs_addr)) {
 		return cpu->read_irq(abs_addr);
@@ -238,14 +237,6 @@ void Bus::write(uint addr, T value)
 		ubyte timer = (abs_addr >> 4) & 3;
 		return timers[timer]->write(abs_addr, (uint)value);
 	}
-	else if (EXPANSION_2.contains(abs_addr)) {
-		int offset = EXPANSION_2.offset(abs_addr);
-		return util::write_memory<T>(ex1, offset, value);
-	}
-	else if (SPU_RANGE.contains(abs_addr)) {
-		int offset = SPU_RANGE.offset(abs_addr);
-		return util::write_memory<T>(registers, offset, value);
-	}
 	else if (GPU_RANGE.contains(abs_addr)) {
 		return gpu->write(abs_addr, (uint)value);
 	}
@@ -263,6 +254,9 @@ void Bus::write(uint addr, T value)
 	else if (DMA_RANGE.contains(abs_addr)) {
 		return dma->write(abs_addr, (uint)value);
 	}
+	else if (SPU_RANGE.contains(abs_addr)) {
+		return spu->write<T>(abs_addr, value);
+	}
 	else if (RAM.contains(abs_addr)) {
 		int offset = RAM.offset(abs_addr);
 		return util::write_memory<T>(ram, offset, value);
@@ -272,6 +266,9 @@ void Bus::write(uint addr, T value)
 	}
 	else if (RAM_SIZE.contains(abs_addr)) {
 		return;
+	}
+	else if (EXPANSION_2.contains(abs_addr)) {
+		return exp2->write<T>(abs_addr, value);
 	}
 	else if (SYS_CONTROL.contains(abs_addr)) {
 		return;

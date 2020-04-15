@@ -146,6 +146,8 @@
     <ClInclude Include="cpu\cop0.h" />
     <ClInclude Include="cpu\gte.h" />
     <ClInclude Include="cpu\instr.hpp" />
+    <ClInclude Include="memory\expansion2.hpp" />
+    <ClInclude Include="sound\spu.hpp" />
     <ClInclude Include="stdafx.hpp" />
     <ClInclude Include="utility\types.hpp" />
     <ClInclude Include="utility\utility.hpp" />

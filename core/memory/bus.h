@@ -24,8 +24,12 @@ struct PSEXELoadInfo {
 	uint r29_r30;
 };
 
+/* Forward declarations. */
 class CPU;
+class SPU;
 class Renderer;
+class Expansion2;
+
 struct GLFWwindow;
 class Bus {
 public:
@@ -57,6 +61,8 @@ public:
 	std::unique_ptr<Renderer> renderer;
 	std::unique_ptr<GPU> gpu;
 	std::shared_ptr<CPU> cpu;
+	std::shared_ptr<SPU> spu;
+	std::shared_ptr<Expansion2> exp2;
 
 	/* Memory regions. */
 	uint spu_delay = 0;

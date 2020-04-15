@@ -130,7 +130,7 @@ void Renderer::update()
     glScissor(0, 0, window_width, window_height);
    
     glClear(GL_COLOR_BUFFER_BIT);
-    glBlitFramebuffer(0, 511 - bottom_right.y, size.x + 1, 512, 0, 0, window_width, window_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBlitFramebuffer(0, 0, window_width, window_height, 0, 0, window_width, window_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
 
     glfwSwapBuffers(window);
