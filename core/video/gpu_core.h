@@ -25,11 +25,6 @@ enum VideoMode :uint {
     PAL = 1
 };
 
-enum ColorDepth :uint {
-    C15bit = 0,
-    C24bit = 1
-};
-
 enum DMADirection : uint {
     Off = 0,
     Fifo = 1,
@@ -37,8 +32,21 @@ enum DMADirection : uint {
     Vram_Cpu = 3
 };
 
+enum class GPUCommand : uint {
+    Polygon,
+    Rectangle,
+    Fill_Rectangle,
+    Line,
+    Nop,
+    Render_Attrib,
+    Cpu_Vram,
+    Vram_Cpu,
+    Vram_Vram,
+    None
+};
+
 union GPUSTAT {
-    uint raw;
+    uint value;
 
     struct {
         uint page_base_x : 4;
@@ -99,7 +107,7 @@ public:
     uint read(uint address);
     void write(uint address, uint data);
 
-    glm::vec3 unpack_color(uint color);
+    glm::ivec3 unpack_color(uint color);
     glm::ivec2 unpack_point(uint point);
     glm::ivec2 unpack_coord(uint coord);
     
@@ -140,19 +148,23 @@ public:
     Renderer* gl_renderer;
     GPUSTAT status;
 
+    /* GP0 registers. */
     glm::u8vec2 texture_window_mask;
     glm::u8vec2 texture_window_offset;
     glm::u16vec2 drawing_area_top_left;
     glm::u16vec2 drawing_area_bottom_right;
     glm::i16vec2 draw_offset;
 
+    /* GP1 registers. */
     glm::u16vec2 display_area;
     glm::u16vec2 display_area_top_left;
     glm::u16vec2 display_area_bottom_right;
     glm::bvec2 textured_rectangle_flip;
 
     DataMover cpu_to_gpu, gpu_to_cpu;
+    GPUCommand current_command;
 
+    /* GPU Timing. */
     uint gpu_clock = 0, scanline = 0, frame_count = 0;
     bool in_vblank = false, in_hblank = false;
 

@@ -92,7 +92,7 @@ namespace util {
 	}
 
 	template <typename T>
-	static inline T read_memory(ubyte* memory, int offset)
+	static inline T read_memory(void* memory, int offset)
 	{
 		T* data = (T*)memory;
 		int index = offset / sizeof(T);
@@ -100,7 +100,7 @@ namespace util {
 	}
 
 	template <typename T>
-	static inline void write_memory(ubyte* memory, int offset, T value)
+	static inline void write_memory(void* memory, int offset, T value)
 	{
 		T* data = (T*)memory;
 		int index = offset / sizeof(T);

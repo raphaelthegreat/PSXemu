@@ -5,6 +5,7 @@
 #include <utility/utility.hpp>
 #include <video/vram.h>
 
+/* Lookup table that tells us the number of attributes in a specific command. */
 int GPU::command_size[16 * 16] =
 {
     //0  1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
@@ -27,6 +28,7 @@ int GPU::command_size[16 * 16] =
 };
 
 void GPU::write_gp0(uint data) {
+    /* If a transfer is pending ignore command. */
     if (cpu_to_gpu.active) {
         auto lower = ushort(data >> 0);
         auto upper = ushort(data >> 16);
@@ -36,49 +38,82 @@ void GPU::write_gp0(uint data) {
         return;
     }
 
+    /* Push command word in the fifo. */
     fifo.push_back(data);
     uint command = fifo[0] >> 24;
 
-    if (fifo.size() == command_size[command]) {     
-        if (command == 0x00)
+    /* If the command is complete, execute it. */
+    if (fifo.size() == command_size[command]) {
+        if (command == 0x00) {
             gp0_nop();
-        else if (command == 0x01)
+            current_command = GPUCommand::Nop;
+        }
+        else if (command == 0x01) {
             gp0_clear_cache();
-        else if (command == 0x02)
+            current_command = GPUCommand::Render_Attrib;
+        }
+        else if (command == 0x02) {
             gp0_fill_rect();
-        else if (command == 0xE1)
-            gp0_draw_mode();
-        else if (command == 0xE2)
-            gp0_texture_window_setting();
-        else if (command == 0xE3)
-            gp0_draw_area_top_left();
-        else if (command == 0xE4)
-            gp0_draw_area_bottom_right();
-        else if (command == 0xE5)
-            gp0_drawing_offset();
-        else if (command == 0xE6)
-            gp0_mask_bit_setting();
-        else if (command >= 0x20 && command <= 0x3F)
+            current_command = GPUCommand::Fill_Rectangle;
+        }
+        else if (command >= 0x20 && command <= 0x3F) {
             gp0_render_polygon();
-        else if (command >= 0x40 && command <= 0x5F)
-            ; /* Line rendering. */
-        else if (command >= 0x60 && command <= 0x7F)
+            current_command = GPUCommand::Polygon;
+        }
+        else if (command >= 0x40 && command <= 0x5F) {
+            current_command = GPUCommand::Line;
+        }
+        else if (command >= 0x60 && command <= 0x7F) {
             gp0_render_rect();
-        else if (command >= 0x80 && command <= 0x9F)
+            current_command = GPUCommand::Rectangle;
+        }
+        else if (command >= 0x80 && command <= 0x9F) {
             gp0_image_transfer();
-        else if (command >= 0xA0 && command <= 0xBF)
+            current_command = GPUCommand::Vram_Vram;
+        }
+        else if (command >= 0xA0 && command <= 0xBF) {
             gp0_image_load();
-        else if (command >= 0xC0 && command <= 0xDF)
+            current_command = GPUCommand::Cpu_Vram;
+        }
+        else if (command >= 0xC0 && command <= 0xDF) {
             gp0_image_store();
+            current_command = GPUCommand::Vram_Cpu;
+        }
+        else if (command == 0xE1) {
+            gp0_draw_mode();
+            current_command = GPUCommand::Render_Attrib;
+        }
+        else if (command == 0xE2) {
+            gp0_texture_window_setting();
+            current_command = GPUCommand::Render_Attrib;
+        }
+        else if (command == 0xE3) {
+            gp0_draw_area_top_left();
+            current_command = GPUCommand::Render_Attrib;
+        }
+        else if (command == 0xE4) {
+            gp0_draw_area_bottom_right();
+            current_command = GPUCommand::Render_Attrib;
+        }
+        else if (command == 0xE5) {
+            gp0_drawing_offset();
+            current_command = GPUCommand::Render_Attrib;
+        }
+        else if (command == 0xE6) {
+            gp0_mask_bit_setting();
+            current_command = GPUCommand::Render_Attrib;
+        }
         else {
             printf("[GPU] write_gp0: unknown command: 0x%x\n", command);
-            exit(0);
+            exit(1);
         }
 
+        /* Do not forget to clear the fifo! */
         fifo.clear();
     }
 }
 
+/* Renders a polygon to the framebuffer. */
 void GPU::gp0_render_polygon()
 {
     auto& shader = gl_renderer->shader;
@@ -135,7 +170,7 @@ void GPU::gp0_render_polygon()
 
         v.texpage = texpage;
         v.clut_coord = clut_coord;
-        v.color_depth = color_depth;
+        v.color_depth = (float)color_depth;
         v.textured = (textured ? 1.0f : 0.0f);
 
         vdata.push_back(v);
@@ -147,6 +182,7 @@ void GPU::gp0_render_polygon()
     vdata.clear();
 }
 
+/* Renders a rectangle to the framebuffer. */
 void GPU::gp0_render_rect()
 {
     auto command = fifo[0];
@@ -163,15 +199,15 @@ void GPU::gp0_render_rect()
     auto point = unpack_point(fifo[pointer++]);
     point += draw_offset;
     
-    auto texcoord = glm::ivec2(0.0f), clut_coord = glm::ivec2(0.0f);
-    auto texpage = glm::ivec2(0.0f);
+    auto texcoord = glm::ivec2(0), clut_coord = glm::ivec2(0);
+    auto texpage = glm::ivec2(0);
 
     ClutAttrib clut = {}; TPageAttrib page = {};
     uint tx = 0, ty = 0, cx = 0, cy = 0;
 
     if (textured) {
         clut.raw = fifo[2] >> 16;
-        page.raw = status.raw;
+        page.raw = status.value;
         
         tx = page.page_x * 64; ty = page.page_y * 256;
         cx = clut.x * 16; cy = clut.y;
@@ -221,8 +257,8 @@ void GPU::gp0_render_rect()
         v.coord = coord;
         v.texpage = texpage;
         v.clut_coord = clut_coord;
-        v.textured = textured;
-        v.color_depth = color_depth;
+        v.textured = (textured ? 1.0f : 0.0f);
+        v.color_depth = (float)color_depth;
 
         vdata.push_back(v);
     }
@@ -235,6 +271,7 @@ void GPU::gp0_render_rect()
     vdata.clear();
 }
 
+/* Does nothing. */
 void GPU::gp0_nop()
 {
     return;
@@ -274,8 +311,10 @@ void GPU::gp0_fill_rect()
     /* Complete the quad. */
     vdata.insert(vdata.end(), { vdata[1], vdata[2] });
 
-    /* Batch the draw data/ */
-    gl_renderer->draw_call(vdata, Primitive::Rectangle);
+    /* Force draw. */
+    /* NOTE: this done as fill commands ignore all */
+    /* mask settings that the batch renderer uses. */
+    gl_renderer->draw(vdata);
     vdata.clear();
 }
 

@@ -22,6 +22,9 @@ union TPageAttrib {
 	};
 };
 
+constexpr int VRAM_WIDTH = 1024;
+constexpr int VRAM_HEIGHT = 512;
+
 class VRAM {
 public:
 	VRAM() = default;

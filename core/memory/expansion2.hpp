@@ -25,6 +25,6 @@ inline void Expansion2::write(uint address, T data)
 	int offset = bus->EXPANSION_2.offset(address);
 	/* Write to POST register. */
 	if (offset == 0x41) {
-		post = data & 0xf;
+		util::write_memory<T>((ubyte*)&post, offset - 0x41, data);
 	}
 }

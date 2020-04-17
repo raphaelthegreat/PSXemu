@@ -23,6 +23,7 @@ void Shader::set_int(const char* str, int val)
 {
     auto loc = glGetUniformLocation(shader_id, str);
     glUniform1i(loc, val);
+    
 }
 
 void Shader::set_vec2(const char* str, const glm::vec2& val)

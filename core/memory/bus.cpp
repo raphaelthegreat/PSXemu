@@ -33,7 +33,7 @@ std::vector<ubyte> load_file(fs::path const& filepath)
 Bus::Bus(const std::string& bios_path)
 {
 	/* Construct components. */
-	renderer = std::make_unique<Renderer>(1024, 512, "Playstation 1 emulator", this);
+	renderer = std::make_unique<Renderer>(640, 480, "Playstation 1 emulator", this);
 	cpu = std::make_shared<CPU>(this);
 	gpu = std::make_unique<GPU>(renderer.get());
 	spu = std::make_shared<SPU>(this);
@@ -47,6 +47,11 @@ Bus::Bus(const std::string& bios_path)
 	controller = std::make_unique<ControllerManager>(this);
 	cddrive = std::make_unique<CDManager>(this);
 
+	/* Construct debugging tools. */
+	debugger = std::make_unique<Debugger>(this);
+	debugger->push_widget<CPUWidget>();
+	debugger->push_widget<MemWidget>();
+
 	/* Open BIOS file. */
 	util::read_binary_file(bios_path, 512 * 1024, bios);
 
@@ -55,36 +60,48 @@ Bus::Bus(const std::string& bios_path)
 	glfwSetKeyCallback(renderer->window, &Bus::key_callback);
 }
 
+/* Get the physical memory address from the virtual one. */
 uint Bus::physical_addr(uint addr)
 {
     uint index = addr >> 29;
     return (addr & region_mask[index]);
 }
 
+/* Used for keyboard input detection. */
+/* TODO: Add mappable keyboard configurations. */
 void Bus::key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 	Bus* bus = (Bus*)glfwGetWindowUserPointer(window);
 
+	/* Button was just pressed. */
 	if (action == GLFW_PRESS) {
+		/* Handle controller input. */
 		bus->controller->controller.key_down(key);
 		
+		/* Enable wireframe mode. */
 		if (key == GLFW_KEY_F1) {
 			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 			glClear(GL_COLOR_BUFFER_BIT);
-		}
+		} /* Enable normal fill mode. */
 		else if (key == GLFW_KEY_F2) {
 			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 			glClear(GL_COLOR_BUFFER_BIT);
-		}
+		} /* Dump vram to image file. */
 		else if (key == GLFW_KEY_F3) {
 			vram.write_to_image();
+		}/* Toggle debugging utilities. */
+		else if (key == GLFW_KEY_F4) {
+			bus->debug_enable = !bus->debug_enable;
 		}
-	}
+	} /* Button was just released. */
 	else if (action == GLFW_RELEASE) {
 		bus->controller->controller.key_up(key);
 	}
 }
 
+/* Load a Playstation Executable file. */
+/* NOTE: To execute it, the force_test function in the CPU must be called! */
+/* TODO: Have a clean API for loading .bin/.cue and .exe files. */
 bool Bus::loadEXE(std::string m_psxexe_path, PSEXELoadInfo& out_psx_load_info)
 {
 	if (m_psxexe_path.empty())
@@ -109,7 +126,7 @@ bool Bus::loadEXE(std::string m_psxexe_path, PSEXELoadInfo& out_psx_load_info)
 		uint r29_r30_offset;  // initial r29 and r30 offset, added to above
 		// etc, we don't care about anything else
 	};
-	cpu->log = true;
+
 	const auto psx_exe = (PSXEXEHeader*)psx_exe_buf.data();
 
 	if (std::strcmp(&psx_exe->magic[0], "PS-X EXE")) {
@@ -135,6 +152,7 @@ bool Bus::loadEXE(std::string m_psxexe_path, PSEXELoadInfo& out_psx_load_info)
 	return true;
 }
 
+/* Tick the major components. */
 void Bus::tick()
 {
 	/* Tick CPU. */
@@ -156,26 +174,37 @@ void Bus::tick()
 
 	/* Tick GPU. */
 	if (gpu->tick(300)) {
+		/* Display draw data. */
 		renderer->update();
+
+		/* Show debug utilities. */
+		if (debug_enable) {
+			debugger->display();
+		}
+
+		/* Swap back and front buffers. */
+		renderer->swap();
+
+		/* Publish VBLANK irq. */
 		this->irq(Interrupt::VBLANK);
 	}
 }
 
+/* Trigger an interrupt. */
 void Bus::irq(Interrupt interrupt) const
 {
 	cpu->trigger(interrupt);
 }
 
+/* Read memory at address. */
 template<typename T>
 T Bus::read(uint addr)
 {
-	constexpr int width = sizeof(T);
-	if (addr == 0x1f801014) {
-		return 0;
-	}
-
 	/* Map the memory ranges. */
 	uint abs_addr = physical_addr(addr);
+
+	if (abs_addr == 0x1F801014) return 0;
+
 	if (TIMERS.contains(abs_addr)) {
 		ubyte timer = (abs_addr >> 4) & 3;
 		return timers[timer]->read(abs_addr);
@@ -212,25 +241,23 @@ T Bus::read(uint addr)
 		return spu->read<T>(abs_addr);
 	}
 	else if (RAM_SIZE.contains(abs_addr)) {
-		return 0;
+		printf("ram size read\n");
+		return 0x00000888;
 	}
 	else if (INTERRUPT.contains(abs_addr)) {
 		return cpu->read_irq(abs_addr);
 	}
 
+	constexpr int width = sizeof(T);
 	printf("[MEM] Emulator::read: unhandled read to address: 0x%x with width %d\n", abs_addr, width);
 	exit(1);
 	return 0;
 }
 
+/* Write to memory at address with a specific value. */
 template<typename T>
 void Bus::write(uint addr, T value)
 {
-	int width = sizeof(T);
-	if (addr == 0x1f801014) {
-		return;
-	}
-
 	/* Map the memory ranges. */
 	uint abs_addr = physical_addr(addr);
 	if (TIMERS.contains(abs_addr)) {
@@ -262,7 +289,8 @@ void Bus::write(uint addr, T value)
 		return util::write_memory<T>(ram, offset, value);
 	}
 	else if (CACHE_CONTROL.contains(abs_addr)) {
-		return;
+		int offset = CACHE_CONTROL.offset(abs_addr);
+		return util::write_memory<T>(&cpu->cache_control.value, offset, value);
 	}
 	else if (RAM_SIZE.contains(abs_addr)) {
 		return;
@@ -277,8 +305,10 @@ void Bus::write(uint addr, T value)
 		return cpu->write_irq(abs_addr, value);
 	}
 
+	int width = sizeof(T);
 	printf("[MEM] Emulator::write: unhandled write to address: 0x%x with width %d\n", abs_addr, width);
-	exit(1);
+	//exit(1);
+	__debugbreak();
 }
 
 /* Template definitions. */

@@ -3,6 +3,7 @@
 #include <devices/cdrom_drive.hpp>
 #include <devices/timer.h>
 #include <devices/controller.h>
+#include <tools/debugger.hpp>
 #include <cpu/cache.h>
 #include <video/gpu_core.h>
 
@@ -63,6 +64,10 @@ public:
 	std::shared_ptr<CPU> cpu;
 	std::shared_ptr<SPU> spu;
 	std::shared_ptr<Expansion2> exp2;
+
+	/* Debugging. */
+	std::unique_ptr<Debugger> debugger;
+	bool debug_enable = false;
 
 	/* Memory regions. */
 	uint spu_delay = 0;

@@ -73,6 +73,7 @@ Index of this file:
 // Forward declarations
 //-----------------------------------------------------------------------------
 
+struct ImBitVector;
 struct ImBoolVector;                // Store 1-bit per value
 struct ImRect;                      // An axis-aligned rectangle (2 points)
 struct ImDrawDataBuilder;           // Helper to build a ImDrawData instance
@@ -359,6 +360,34 @@ IMGUI_API ImVec2     ImTriangleClosestPoint(const ImVec2& a, const ImVec2& b, co
 IMGUI_API void       ImTriangleBarycentricCoords(const ImVec2& a, const ImVec2& b, const ImVec2& c, const ImVec2& p, float& out_u, float& out_v, float& out_w);
 inline float         ImTriangleArea(const ImVec2& a, const ImVec2& b, const ImVec2& c) { return ImFabs((a.x * (b.y - c.y)) + (b.x * (c.y - a.y)) + (c.x * (a.y - b.y))) * 0.5f; }
 IMGUI_API ImGuiDir   ImGetDirQuadrantFromDelta(float dx, float dy);
+
+// Helpers: Bit arrays
+inline bool          ImBitArrayTestBit(const ImU32* arr, int n) { ImU32 mask = (ImU32)1 << (n & 31); return (arr[n >> 5] & mask) != 0; }
+inline void          ImBitArrayClearBit(ImU32* arr, int n) { ImU32 mask = (ImU32)1 << (n & 31); arr[n >> 5] &= ~mask; }
+inline void          ImBitArraySetBit(ImU32* arr, int n) { ImU32 mask = (ImU32)1 << (n & 31); arr[n >> 5] |= mask; }
+inline void          ImBitArraySetBitRange(ImU32* arr, int n, int n2)
+{
+    while (n <= n2)
+    {
+        int a_mod = (n & 31);
+        int b_mod = ((n2 >= n + 31) ? 31 : (n2 & 31)) + 1;
+        ImU32 mask = (ImU32)(((ImU64)1 << b_mod) - 1) & ~(ImU32)(((ImU64)1 << a_mod) - 1);
+        arr[n >> 5] |= mask;
+        n = (n + 32) & ~31;
+    }
+}
+
+// Helper: ImBitVector
+// Store 1-bit per value.
+struct IMGUI_API ImBitVector
+{
+    ImVector<ImU32> Storage;
+    void            Create(int sz)              { Storage.resize((sz + 31) >> 5); memset(Storage.Data, 0, (size_t)Storage.Size * sizeof(Storage.Data[0])); }
+    void            Clear()                     { Storage.clear(); }
+    bool            TestBit(int n) const        { IM_ASSERT(n < (Storage.Size << 5)); return ImBitArrayTestBit(Storage.Data, n); }
+    void            SetBit(int n)               { IM_ASSERT(n < (Storage.Size << 5)); ImBitArraySetBit(Storage.Data, n); }
+    void            ClearBit(int n)             { IM_ASSERT(n < (Storage.Size << 5)); ImBitArrayClearBit(Storage.Data, n); }
+};
 
 // Helper: ImBoolVector
 // Store 1-bit per value. Note that Resize() currently clears the whole vector.

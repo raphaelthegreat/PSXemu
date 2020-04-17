@@ -128,6 +128,10 @@
     <ClCompile Include="memory\dma.cpp" />
     <ClCompile Include="memory\bus.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="tools\cpu_widget.cpp" />
+    <ClCompile Include="tools\debugger.cpp" />
+    <ClCompile Include="tools\gpu_widget.cpp" />
+    <ClCompile Include="tools\mem_widget.cpp" />
     <ClCompile Include="video\gp0.cpp" />
     <ClCompile Include="video\gp1.cpp" />
     <ClCompile Include="video\gpu_core.cpp" />
@@ -149,6 +153,12 @@
     <ClInclude Include="memory\expansion2.hpp" />
     <ClInclude Include="sound\spu.hpp" />
     <ClInclude Include="stdafx.hpp" />
+    <ClInclude Include="tools\cpu_widget.hpp" />
+    <ClInclude Include="tools\debugger.hpp" />
+    <ClInclude Include="tools\gpu_widget.hpp" />
+    <ClInclude Include="tools\imgui_header.hpp" />
+    <ClInclude Include="tools\mem_widget.hpp" />
+    <ClInclude Include="tools\widget.hpp" />
     <ClInclude Include="utility\types.hpp" />
     <ClInclude Include="utility\utility.hpp" />
     <ClInclude Include="cpu\cpu.h" />

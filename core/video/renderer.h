@@ -18,9 +18,13 @@ public:
 	Renderer(int width, int height, const std::string& title, Bus* _bus);
 	~Renderer();
 
+	/* Batch vertex data. */
 	void draw_call(std::vector<Vertex>& data, Primitive primitive);
+	/* Force draw vertex data. */
+	void draw(std::vector<Vertex>& data);
 
 	void update();
+	void swap();
 	bool is_open();
 
 public:

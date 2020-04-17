@@ -24,7 +24,7 @@ public:
     CPU(Bus* bus);
     ~CPU();
 
-    /* CPU functionality */
+    /* CPU functionality. */
     void tick();
     void reset();
     void fetch();
@@ -33,6 +33,8 @@ public:
     void handle_interrupts();
     void handle_load_delay();
     void force_test();
+
+    void break_on_next_tick();
 
     void exception(ExceptionType cause, uint cop = 0);
     void set_reg(uint regN, uint value);
@@ -91,18 +93,27 @@ public:
 public:
     Bus* bus;
 
+    /* Registers. */
     uint current_pc, pc, next_pc;
     uint i_stat, i_mask;
-    uint registers[32];
+    uint registers[32] = {};
     uint hi, lo;
 
+    /* Flow control. */
     bool is_branch, is_delay_slot;
     bool took_branch;
     bool in_delay_slot_took_branch;
-    bool log = false;
+    
+    /* Debugging. */
+    bool should_break = false;
+    bool should_log = false;
+    std::ofstream log_file;
 
     uint exception_addr[2] = { 0x80000080, 0xBFC00180 };
+    
+    /* I-Cache. */
     CacheLine instr_cache[256] = {};
+    CacheControl cache_control = {};
 
     /* Coprocessors. */
     Cop0 cop0;
@@ -111,6 +122,7 @@ public:
     MEM write_back, memory_load;
     MEM delayed_memory_load;
 
+    /* Current instruction. */
     Instr instr;
 
     /* Opcode lookup table. */
@@ -120,11 +132,13 @@ public:
 template<typename T>
 inline T CPU::read(uint addr)
 {
+    /* Read from main RAM or IO. */
     return bus->read<T>(addr);
 }
 
 template<typename T>
 inline void CPU::write(uint addr, T data)
 {
+    /* Write to main RAM or IO. */
     bus->write<T>(addr, data);
 }

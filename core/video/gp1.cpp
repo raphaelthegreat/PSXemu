@@ -6,7 +6,7 @@ void GPU::write_gp1(uint data)
 {    
     uint opcode = (data >> 24) & 0x3f;
     if (opcode == 0) {
-        status.raw = 0x14802000;
+        status.value = 0x14802000;
         textured_rectangle_flip = glm::bvec2(false);
     }
     else if (opcode == 1) {

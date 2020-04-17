@@ -30,8 +30,8 @@ Renderer::Renderer(int width, int height, const std::string& title, Bus* _bus) :
 
     /* Build shader */
     shader = std::make_unique<Shader>();
-    shader->load("shaders/vertex.vert", ShaderType::Vertex);
-    shader->load("shaders/fragment.frag", ShaderType::Fragment);
+    shader->load("data/shaders/vertex.vert", ShaderType::Vertex);
+    shader->load("data/shaders/fragment.frag", ShaderType::Fragment);
     shader->build();
 
     /* Create the screen framebuffer. */
@@ -40,14 +40,17 @@ Renderer::Renderer(int width, int height, const std::string& title, Bus* _bus) :
 
     glGenTextures(1, &framebuffer_texture);
     glBindTexture(GL_TEXTURE_2D, framebuffer_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1024, 512, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, framebuffer_texture, 0);
 
+    glViewport(0, 0, 1024, 512);
+    glScissor(0, 0, 1024, 512);
+
     glGenRenderbuffers(1, &framebuffer_rbo);
     glBindRenderbuffer(GL_RENDERBUFFER, framebuffer_rbo);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 1024, 512);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, framebuffer_rbo);
 
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
@@ -105,15 +108,52 @@ void Renderer::draw_call(std::vector<Vertex>& data, Primitive p)
     draw_data.insert(draw_data.end(), data.begin(), data.end());
 }
 
+void Renderer::draw(std::vector<Vertex>& data)
+{
+    /* Get current display resolution. */
+    int width = bus->gpu->width[bus->gpu->status.hres];
+    int height = bus->gpu->height[bus->gpu->status.vres];
+
+    /* Display area start. */
+    auto& display_area = bus->gpu->display_area;
+
+    /* Ignore scissor test. */
+    auto& draw_top_left = bus->gpu->drawing_area_top_left;
+    auto& draw_bottom_right = bus->gpu->drawing_area_bottom_right;
+    auto size = draw_bottom_right - draw_top_left;
+    glScissor(draw_top_left.x, VRAM_HEIGHT - draw_bottom_right.y, size.x, size.y);
+
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+
+    /* Immediately draw the provided data. */
+    glBindVertexArray(draw_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, draw_vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, data.size() * sizeof(Vertex), data.data());
+
+    shader->bind();
+    vram.bind_vram_texture();
+    int count = (int)data.size();
+
+    glDrawArrays(GL_TRIANGLES, 0, count);
+}
+
 void Renderer::update()
 {
     glfwPollEvents();
 
     /* Clip pixels outside of draw area for the next frame. */
-    auto& top_left = bus->gpu->drawing_area_top_left;
-    auto& bottom_right = bus->gpu->drawing_area_bottom_right;
-    auto size = bottom_right - top_left;
-    glScissor(top_left.x, 512 - bottom_right.y - 1, size.x + 1, size.y + 1);
+    auto& draw_top_left = bus->gpu->drawing_area_top_left;
+    auto& draw_bottom_right = bus->gpu->drawing_area_bottom_right;
+    auto size = draw_bottom_right - draw_top_left;
+    glScissor(draw_top_left.x, VRAM_HEIGHT - draw_bottom_right.y, size.x, size.y);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
+    /* Get current display resolution. */
+    int width = bus->gpu->width[bus->gpu->status.hres];
+    int height = bus->gpu->height[bus->gpu->status.vres];
+
+    /* Display area start. */
+    auto& display_area = bus->gpu->display_area;
 
     glBindVertexArray(draw_vao);
     glBindBuffer(GL_ARRAY_BUFFER, draw_vbo);
@@ -121,22 +161,28 @@ void Renderer::update()
 
     shader->bind();
     vram.bind_vram_texture();
-    glDrawArrays(GL_TRIANGLES, 0, draw_data.size());
-
+    int count = (int)draw_data.size();
+    
+    glDrawArrays(GL_TRIANGLES, 0, count);
+    
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
 
     /* Remove scissor to copy framebuffer. */
-    glScissor(0, 0, window_width, window_height);
-   
-    glClear(GL_COLOR_BUFFER_BIT);
-    glBlitFramebuffer(0, 0, window_width, window_height, 0, 0, window_width, window_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+    glScissor(0, 0, VRAM_WIDTH, VRAM_HEIGHT);
 
-    glfwSwapBuffers(window);
+    /* Copy from framebuffer to the default framebuffer. */
+    glBlitFramebuffer(display_area.x, VRAM_HEIGHT - height - display_area.y, display_area.x + width, VRAM_HEIGHT, 0, 0, window_width, window_height, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     draw_data.clear();
     primitive_count = 0;
+}
+
+void Renderer::swap()
+{
+    glfwSwapBuffers(window);
+    glClear(GL_COLOR_BUFFER_BIT);
 }
 
 bool Renderer::is_open()

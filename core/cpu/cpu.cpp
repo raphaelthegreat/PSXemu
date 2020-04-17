@@ -5,19 +5,20 @@ CPU::CPU(Bus* bus) :
     gte(this)
 {
     this->bus = bus;
-    
+
     /*Set PRID Processor ID*/
     cop0.PRId = 0x2;
-    
+
     /* Fill opcode table. */
     register_opcodes();
-    
+
     /* Reset CPU state. */
     reset();
 }
 
 CPU::~CPU()
 {
+    if (log_file.is_open()) log_file.close();
 }
 
 void CPU::tick()
@@ -25,8 +26,14 @@ void CPU::tick()
     /* Fetch next instruction. */
     fetch();
 
+    if (should_log) {
+        if (!log_file.is_open()) log_file.open("log.txt");
+
+        log_file << "PC: 0x" << std::hex << pc << ' ';
+    }
+
     /* Execute it. */
-    auto& handler = lookup[instr.opcode()];    
+    auto& handler = lookup[instr.opcode()];
     handler();
 
     /* Apply pending load delays. */
@@ -43,11 +50,21 @@ void CPU::force_test()
             pc = psxexe_load_info.pc;
             next_pc = pc + 4;
 
+            printf("[CPU] Sideloading exe file.\n");
+
             registers[28] = psxexe_load_info.r28;
-            registers[29] = psxexe_load_info.r29_r30;
-            registers[30] = psxexe_load_info.r29_r30;
+            
+            if (psxexe_load_info.r29_r30 != 0) {
+                registers[29] = psxexe_load_info.r29_r30;
+                registers[30] = psxexe_load_info.r29_r30;
+            }
         }
     }
+}
+
+void CPU::break_on_next_tick()
+{
+    should_break = true;
 }
 
 void CPU::reset()
@@ -88,7 +105,7 @@ void CPU::handle_interrupts()
 
     uint irq_mask = (cop0.sr.raw >> 8) & 0xFF;
     uint irq_pending = (cop0.cause.raw >> 8) & 0xFF;
-    
+
     /* If pending and enabled, handle the interrupt. */
     if (irq_enabled && (irq_mask & irq_pending) > 0) {
         exception(ExceptionType::Interrupt);
@@ -97,41 +114,7 @@ void CPU::handle_interrupts()
 
 void CPU::fetch()
 {
-    //CacheControl& cc = bus->cache_ctrl;
-
-    /* Get PC address. */
-    Address addr;
-    addr.raw = pc;
-
-    bool kseg1 = KSEG1.contains(pc);
-    if (/*!kseg1 && cc.is1*/false) {
-
-        /* Fetch cache line and check it's validity. */
-        CacheLine& line = instr_cache[addr.cache_line];
-        bool not_valid = line.tag.tag != addr.tag;
-        not_valid |= line.tag.index > addr.index;
-
-        /* Handle cache miss. */
-        if (not_valid) {
-            uint cpc = pc;
-
-            /* Move adjacent data to the cache. */
-            for (int i = addr.index; i < 4; i++) {
-                line.instrs[i].value = read(cpc);
-                cpc += 4;
-            }
-        }
-
-        /* Validate the cache line. */
-        line.tag.raw = pc & 0xfffff00c;
-
-        /* Get instruction from cache. */
-        instr = line.instrs[addr.index];
-    }
-    else {
-        /* Fetch instruction from main RAM. */
-        instr.value = read(pc);
-    }
+    instr.value = read(pc);
 
     /* Update PC. */
     current_pc = pc;
@@ -147,7 +130,7 @@ void CPU::fetch()
     /* Check aligment errors. */
     if ((current_pc % 4) != 0) {
         cop0.BadA = current_pc;
-        
+
         exception(ExceptionType::ReadError);
         return;
     }
@@ -156,7 +139,7 @@ void CPU::fetch()
 uint CPU::read_irq(uint address)
 {
     uint offset = INTERRUPT.offset(address);
-    
+
     if (offset == 0)
         return i_stat;
     else if (offset == 4)
@@ -296,16 +279,16 @@ void CPU::op_swl()
 
     uint value = 0;
     switch (addr & 0b11) {
-    case 0: 
-        value = (aligned_load & 0xFFFFFF00) | (registers[instr.rt()] >> 24); 
+    case 0:
+        value = (aligned_load & 0xFFFFFF00) | (registers[instr.rt()] >> 24);
         break;
-    case 1: 
-        value = (aligned_load & 0xFFFF0000) | (registers[instr.rt()] >> 16); 
+    case 1:
+        value = (aligned_load & 0xFFFF0000) | (registers[instr.rt()] >> 16);
         break;
-    case 2: 
-        value = (aligned_load & 0xFF000000) | (registers[instr.rt()] >> 8); 
+    case 2:
+        value = (aligned_load & 0xFF000000) | (registers[instr.rt()] >> 8);
         break;
-    case 3: 
+    case 3:
         value = registers[instr.rt()]; break;
     }
 
@@ -326,17 +309,17 @@ void CPU::op_lwr()
     }
 
     switch (addr & 0b11) {
-    case 0: 
-        value = aligned_load; 
+    case 0:
+        value = aligned_load;
         break;
-    case 1: 
-        value = (LRValue & 0xFF000000) | (aligned_load >> 8); 
+    case 1:
+        value = (LRValue & 0xFF000000) | (aligned_load >> 8);
         break;
-    case 2: 
-        value = (LRValue & 0xFFFF0000) | (aligned_load >> 16); 
+    case 2:
+        value = (LRValue & 0xFFFF0000) | (aligned_load >> 16);
         break;
-    case 3: 
-        value = (LRValue & 0xFFFFFF00) | (aligned_load >> 24); 
+    case 3:
+        value = (LRValue & 0xFFFFFF00) | (aligned_load >> 24);
         break;
     }
 
@@ -357,20 +340,20 @@ void CPU::op_lwl()
     }
 
     switch (addr & 0b11) {
-    case 0: 
-        value = (LRValue & 0x00FFFFFF) | (aligned_load << 24); 
+    case 0:
+        value = (LRValue & 0x00FFFFFF) | (aligned_load << 24);
         break;
-    case 1: 
-        value = (LRValue & 0x0000FFFF) | (aligned_load << 16); 
+    case 1:
+        value = (LRValue & 0x0000FFFF) | (aligned_load << 16);
         break;
-    case 2: 
+    case 2:
         value = (LRValue & 0x000000FF) | (aligned_load << 8);
         break;
-    case 3: 
-        value = aligned_load; 
+    case 3:
+        value = aligned_load;
         break;
     }
-    
+
     load(instr.rt(), value);
 }
 
@@ -384,7 +367,7 @@ void CPU::op_sub()
     uint rs = registers[instr.rs()];
     uint rt = registers[instr.rt()];
     uint sub = rs - rt;
-    
+
     bool overflow = util::sub_overflow(rs, rt, sub);
     if (!overflow)
         set_reg(instr.rd(), sub);
@@ -822,7 +805,9 @@ void CPU::op_sll()
 void CPU::op_sw()
 {
     if (!cop0.sr.IsC) {
-        uint addr = registers[instr.rs()] + instr.imm_s();
+        uint r = instr.rs();
+        uint i = instr.imm_s();
+        uint addr = registers[r] + i;
 
         if ((addr & 0x3) == 0) {
             bus->write(addr, registers[instr.rt()]);

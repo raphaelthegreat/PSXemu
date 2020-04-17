@@ -7,10 +7,12 @@
 GPU::GPU(Renderer* renderer) :
     gl_renderer(renderer)
 {
-    status.raw = 0x14802000;
+    status.value = 0x14802000;
 
     cpu_to_gpu.active = false;
     gpu_to_cpu.active = false;
+
+    current_command = GPUCommand::None;
 }
 
 uint GPU::read(uint address) 
@@ -48,16 +50,16 @@ glm::ivec2 GPU::unpack_point(uint point)
 
 glm::ivec2 GPU::unpack_coord(uint coord)
 {
-    glm::vec2 p;
+    glm::ivec2 p;
     p.s = (coord >> 0) & 0xff;
     p.t = (coord >> 8) & 0xff;
 
     return p;
 }
 
-glm::vec3 GPU::unpack_color(uint color) 
+glm::ivec3 GPU::unpack_color(uint color) 
 {
-    glm::vec3 result;
+    glm::ivec3 result;
     result.r = (color >> 0) & 0xff;
     result.g = (color >> 8) & 0xff;
     result.b = (color >> 16) & 0xff;
@@ -78,7 +80,15 @@ uint GPU::get_gpuread()
 
 uint GPU::get_gpustat() 
 {
-    return (status.raw & ~0x00080000) | 0x1c002000;
+    /*GPUSTAT copy = { status.value };
+
+    copy.reverse_flag = false;
+    copy.ready_cmd = true;
+    copy.ready_vram = current_command != GPUCommand::Cpu_Vram;
+    copy.ready_dma = true;
+
+    return copy.value;*/
+    return (status.value & ~0x00080000) | 0x1c002000;
 }
 
 ushort GPU::hblank_timings()
