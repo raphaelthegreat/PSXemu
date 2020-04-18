@@ -21,9 +21,7 @@ Renderer::Renderer(int width, int height, const std::string& title, Bus* _bus) :
         exit(1);
     }
 
-    glDisable(GL_DEPTH_TEST);
     glEnable(GL_SCISSOR_TEST);
-    glDepthMask(GL_FALSE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -45,8 +43,8 @@ Renderer::Renderer(int width, int height, const std::string& title, Bus* _bus) :
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, framebuffer_texture, 0);
 
-    glViewport(0, 0, 1024, 512);
-    glScissor(0, 0, 1024, 512);
+    glViewport(0, 0, VRAM_WIDTH, VRAM_HEIGHT);
+    glScissor(0, 0, VRAM_WIDTH, VRAM_HEIGHT);
 
     glGenRenderbuffers(1, &framebuffer_rbo);
     glBindRenderbuffer(GL_RENDERBUFFER, framebuffer_rbo);
@@ -162,9 +160,11 @@ void Renderer::update()
     shader->bind();
     vram.bind_vram_texture();
     int count = (int)draw_data.size();
-    
+
+    assert(count < MAX_VERTICES);
+
     glDrawArrays(GL_TRIANGLES, 0, count);
-    
+
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
 
@@ -172,17 +172,18 @@ void Renderer::update()
     glScissor(0, 0, VRAM_WIDTH, VRAM_HEIGHT);
 
     /* Copy from framebuffer to the default framebuffer. */
-    glBlitFramebuffer(display_area.x, VRAM_HEIGHT - height - display_area.y, display_area.x + width, VRAM_HEIGHT, 0, 0, window_width, window_height, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    glBlitFramebuffer(display_area.x, VRAM_HEIGHT - height - display_area.y + 1, display_area.x + width - 1, VRAM_HEIGHT - display_area.y, 0, 0, window_width, window_height, GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    //glBlitFramebuffer(0, 0, VRAM_WIDTH, VRAM_HEIGHT, 0, 0, window_width, window_height, GL_COLOR_BUFFER_BIT, GL_LINEAR);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    draw_data.clear();
-    primitive_count = 0;
 }
 
 void Renderer::swap()
 {
     glfwSwapBuffers(window);
     glClear(GL_COLOR_BUFFER_BIT);
+
+    draw_data.clear();
+    primitive_count = 0;
 }
 
 bool Renderer::is_open()

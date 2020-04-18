@@ -107,7 +107,10 @@ public:
     /* Debugging. */
     bool should_break = false;
     bool should_log = false;
+    bool exe = true;
     std::ofstream log_file;
+    int cycle_int = 20000;
+    bool flip = true;
 
     uint exception_addr[2] = { 0x80000080, 0xBFC00180 };
     

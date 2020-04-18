@@ -26,15 +26,20 @@ void CPU::tick()
     /* Fetch next instruction. */
     fetch();
 
+    //if (pc == 0x8002dde4) __debugbreak();
+
     if (should_log) {
         if (!log_file.is_open()) log_file.open("log.txt");
 
-        log_file << "PC: 0x" << std::hex << pc << ' ';
+        log_file << "PC: 0x" << std::hex << pc << '\n';
     }
 
     /* Execute it. */
     auto& handler = lookup[instr.opcode()];
-    handler();
+    if (handler != nullptr)
+        handler();
+    else
+        exception(ExceptionType::IllegalInstr);
 
     /* Apply pending load delays. */
     handle_load_delay();
@@ -44,9 +49,9 @@ void CPU::tick()
 
 void CPU::force_test()
 {
-    if (pc == 0x80030000) {
+    if (pc == 0x80030000 && exe) {
         PSEXELoadInfo psxexe_load_info;
-        if (bus->loadEXE("./tests/psxtest_cpx.exe", psxexe_load_info)) {
+        if (bus->loadEXE("./tests/timers/timers.exe", psxexe_load_info)) {
             pc = psxexe_load_info.pc;
             next_pc = pc + 4;
 
@@ -54,10 +59,12 @@ void CPU::force_test()
 
             registers[28] = psxexe_load_info.r28;
             
-            if (psxexe_load_info.r29_r30 != 0) {
-                registers[29] = psxexe_load_info.r29_r30;
-                registers[30] = psxexe_load_info.r29_r30;
+            if (psxexe_load_info.r29 != 0) {
+                registers[29] = psxexe_load_info.r29;
+                registers[30] = psxexe_load_info.r30;
             }
+
+            exe = false;
         }
     }
 }
@@ -663,7 +670,7 @@ void CPU::op_beq()
 void CPU::op_lb()
 {
     if (!cop0.sr.IsC) {
-        uint value = (uint)(ubyte)bus->read<ubyte>(registers[instr.rs()] + instr.imm_s());
+        uint value = (uint)(byte)bus->read<ubyte>(registers[instr.rs()] + instr.imm_s());
         load(instr.rt(), value);
     }
 }
@@ -747,11 +754,14 @@ void CPU::op_addi()
     else
         exception(ExceptionType::Overflow, instr.id());
 }
-
+// TODO
 void CPU::op_bne()
 {
+    uint rs = instr.rs();
+    uint rt = instr.rt();
+
     is_branch = true;
-    if (registers[instr.rs()] != registers[instr.rt()]) {
+    if (registers[rs] != registers[rt]) {
         branch();
     }
 }
@@ -794,11 +804,19 @@ void CPU::op_j()
 
 void CPU::op_addiu()
 {
+    uint rt = instr.rt();
+    uint rs = instr.rs();
+    uint imm = instr.imm_s();
+
     set_reg(instr.rt(), registers[instr.rs()] + instr.imm_s());
 }
 
 void CPU::op_sll()
 {
+    uint rd = instr.rd();
+    uint rt = instr.rt();
+    uint sa = instr.sa();
+
     set_reg(instr.rd(), registers[instr.rt()] << (int)instr.sa());
 }
 

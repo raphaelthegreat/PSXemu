@@ -8,7 +8,10 @@ void CPU::op_special()
 	auto func = instr.function();
 
 	auto& handler = special[func];
-	handler();
+	if (handler != nullptr)
+		handler();
+	else
+		exception(ExceptionType::IllegalInstr);
 }
 
 void CPU::op_cop0()

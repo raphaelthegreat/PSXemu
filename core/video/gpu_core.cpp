@@ -57,6 +57,16 @@ glm::ivec2 GPU::unpack_coord(uint coord)
     return p;
 }
 
+GPUSync GPU::get_blanks_and_dot()
+{
+    GPUSync sync;
+    sync.dotDiv = dotClockDiv[status.hres2 << 2 | status.hres1];
+    sync.hblank = in_hblank;
+    sync.vblank = in_vblank;
+
+    return sync;
+}
+
 glm::ivec3 GPU::unpack_color(uint color) 
 {
     glm::ivec3 result;
@@ -116,6 +126,7 @@ bool GPU::tick(uint cycles)
     bool is_480 = (status.vres == 1);
 
     /* Add the cycles to GPU pixel clock (this is in pixels). */
+    /* NOTE: The GPU clock is the cpu clock * 11/7 */
     gpu_clock += cycles * 11 / 7;
 
     /* Finished a scanline. */
@@ -124,7 +135,7 @@ bool GPU::tick(uint cycles)
         in_hblank = true;
         scanline++;
 
-        if (is_480)
+        if (!is_480)
             status.odd_lines = scanline % 2 != 0;
 
         if (scanline > scanlines_per_frame) {

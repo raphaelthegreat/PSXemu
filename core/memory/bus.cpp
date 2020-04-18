@@ -9,20 +9,20 @@
 
 std::vector<ubyte> load_file(fs::path const& filepath) 
 {
-	std::ifstream ifs(filepath, std::ios::binary | std::ios::ate);
+	std::ifstream ifs(filepath, std::ios::binary | std::ios::ate | std::ios::in);
 
 	if (!ifs)
 		throw std::runtime_error(filepath.string() + ": " + std::strerror(errno));
 
-	const auto end = ifs.tellg();
+	const auto size = ifs.tellg();
 	ifs.seekg(0, std::ios::beg);
 
-	const auto size = std::size_t(end - ifs.tellg());
-
-	if (size == 0)  // avoid undefined behavior
+	if (size == 0) {
+		__debugbreak();
 		return {};
+	}
 
-	const std::vector<ubyte> buf(size);
+	std::vector<ubyte> buf(size);
 
 	if (!ifs.read((char*)buf.data(), buf.size()))
 		throw std::runtime_error(filepath.string() + ": " + std::strerror(errno));
@@ -130,16 +130,19 @@ bool Bus::loadEXE(std::string m_psxexe_path, PSEXELoadInfo& out_psx_load_info)
 	const auto psx_exe = (PSXEXEHeader*)psx_exe_buf.data();
 
 	if (std::strcmp(&psx_exe->magic[0], "PS-X EXE")) {
-		printf("Not a valid PS-X EXE file!\n");
+		printf("Not a valid PS-X EXE file!");
+		exit(0);
 		return false;
 	}
 
+	// We don't support memfill
 	assert(psx_exe->memfill_start == 0);
 	assert(psx_exe->memfill_size == 0);
 
 	out_psx_load_info.pc = psx_exe->pc;
 	out_psx_load_info.r28 = psx_exe->r28;
-	out_psx_load_info.r29_r30 = psx_exe->r29_r30 + psx_exe->r29_r30_offset;
+	out_psx_load_info.r29 = psx_exe->r29_r30;
+	out_psx_load_info.r30 = psx_exe->r29_r30 + psx_exe->r29_r30_offset;
 
 	constexpr auto PSXEXE_HEADER_SIZE = 0x800;
 
@@ -155,24 +158,23 @@ bool Bus::loadEXE(std::string m_psxexe_path, PSEXELoadInfo& out_psx_load_info)
 /* Tick the major components. */
 void Bus::tick()
 {
-	/* Tick CPU. */
+	/* Tick the CPU. */
 	for (int i = 0; i < 100; i++) {
 		cpu->tick();
 	}
 
-	/* Tick peripherals. */
+	/* Handle requested interrupts. */
 	cpu->handle_interrupts();
+
+	/* Tick the peripherals. */
 	dma->tick();
 	controller->tick();
 	cddrive->tick();
 
-	/* Tick timers. */
-	for (int i = 0; i < 3; i++) {
-		timers[i]->tick(300);
-		timers[i]->gpu_sync(gpu->in_hblank, gpu->in_vblank);
-	}
-
-	/* Tick GPU. */
+	/* Tick the GPU. */
+	/* NOTE: The function returns a bool indicating */
+	/* if it is Vblank or not. So anything in the brackets */
+	/* will only be executed in Vblank. */
 	if (gpu->tick(300)) {
 		/* Display draw data. */
 		renderer->update();
@@ -188,6 +190,17 @@ void Bus::tick()
 		/* Publish VBLANK irq. */
 		this->irq(Interrupt::VBLANK);
 	}
+
+	/* Sync the timers with the GPU */
+	GPUSync sync = gpu->get_blanks_and_dot();
+	/* Tick timers. */
+	for (int i = 0; i < 2; i++) {
+		timers[i]->tick(300);
+		timers[i]->gpu_sync(sync);
+	}
+
+	/* NOTE: Timer 2 does not sync with the GPU! */
+	timers[2]->tick(300);
 }
 
 /* Trigger an interrupt. */
@@ -203,6 +216,7 @@ T Bus::read(uint addr)
 	/* Map the memory ranges. */
 	uint abs_addr = physical_addr(addr);
 
+	/* HACK: Skip reading SPU_DELAY. */
 	if (abs_addr == 0x1F801014) return 0;
 
 	if (TIMERS.contains(abs_addr)) {
@@ -241,17 +255,15 @@ T Bus::read(uint addr)
 		return spu->read<T>(abs_addr);
 	}
 	else if (RAM_SIZE.contains(abs_addr)) {
-		printf("ram size read\n");
 		return 0x00000888;
 	}
 	else if (INTERRUPT.contains(abs_addr)) {
 		return cpu->read_irq(abs_addr);
 	}
-
-	constexpr int width = sizeof(T);
-	printf("[MEM] Emulator::read: unhandled read to address: 0x%x with width %d\n", abs_addr, width);
-	exit(1);
-	return 0;
+	else {
+		printf("[MEM] Emulator::read: unhandled read to address: 0x%x with width %d.\n", abs_addr, sizeof(T));
+		return 0xFFFFFFFF;
+	}
 }
 
 /* Write to memory at address with a specific value. */
@@ -304,11 +316,10 @@ void Bus::write(uint addr, T value)
 	else if (INTERRUPT.contains(abs_addr)) {
 		return cpu->write_irq(abs_addr, value);
 	}
-
-	int width = sizeof(T);
-	printf("[MEM] Emulator::write: unhandled write to address: 0x%x with width %d\n", abs_addr, width);
-	//exit(1);
-	__debugbreak();
+	else {
+		printf("[MEM] Emulator::write: unhandled write to address: 0x%x with width %d\n", abs_addr, sizeof(T));
+		return;
+	}
 }
 
 /* Template definitions. */

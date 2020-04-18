@@ -536,6 +536,48 @@ void GTE::op_intpl()
     RGB[2].c = RGBC.c;
 }
 
+void GTE::op_ncdt()
+{
+    for (int r = 0; r < 3; r++) {
+        MAC1 = (int)(set_mac_flag(1, (int64_t)LM.v1.x * V[r].x + LM.v1.y * V[r].y + LM.v1.z * V[r].z) >> command.sf * 12);
+        MAC2 = (int)(set_mac_flag(2, (int64_t)LM.v2.x * V[r].x + LM.v2.y * V[r].y + LM.v2.z * V[r].z) >> command.sf * 12);
+        MAC3 = (int)(set_mac_flag(3, (int64_t)LM.v3.x * V[r].x + LM.v3.y * V[r].y + LM.v3.z * V[r].z) >> command.sf * 12);
+
+        IR[1] = set_ir_flag(1, MAC1, command.lm);
+        IR[2] = set_ir_flag(2, MAC2, command.lm);
+        IR[3] = set_ir_flag(3, MAC3, command.lm);
+
+        //Console.WriteLine("NCDS " + ncdsTest + " " + MAC1.ToString("x8") + " " + MAC2.ToString("x8") + " " + MAC3.ToString("x8") + " " + (command.sf * 12).ToString("x1")
+        //             + " " + IR[0].ToString("x4") + " " + IR[1].ToString("x4") + " " + IR[2].ToString("x4") + " " + IR[3].ToString("x4") + " " + FLAG.ToString("x8"));
+
+        // [IR1, IR2, IR3] = [MAC1, MAC2, MAC3] = (BK * 1000h + LCM * IR) SAR(command.sf * 12)
+        // WARNING each multiplication can trigger mac flags so the check is needed on each op! Somehow this only affects the color matrix and not the light one
+        MAC1 = (int)(set_mac_flag(1, set_mac_flag(1, set_mac_flag(1, (int64_t)RBK * 0x1000 + LRGB.v1.x * IR[1]) + (int64_t)LRGB.v1.y * IR[2]) + (int64_t)LRGB.v1.z * IR[3]) >> command.sf * 12);
+        MAC2 = (int)(set_mac_flag(2, set_mac_flag(2, set_mac_flag(2, (int64_t)GBK * 0x1000 + LRGB.v2.x * IR[1]) + (int64_t)LRGB.v2.y * IR[2]) + (int64_t)LRGB.v2.z * IR[3]) >> command.sf * 12);
+        MAC3 = (int)(set_mac_flag(3, set_mac_flag(3, set_mac_flag(3, (int64_t)BBK * 0x1000 + LRGB.v3.x * IR[1]) + (int64_t)LRGB.v3.y * IR[2]) + (int64_t)LRGB.v3.z * IR[3]) >> command.sf * 12);
+
+        IR[1] = set_ir_flag(1, MAC1, command.lm);
+        IR[2] = set_ir_flag(2, MAC2, command.lm);
+        IR[3] = set_ir_flag(3, MAC3, command.lm);
+
+        // [MAC1, MAC2, MAC3] = [R * IR1, G * IR2, B * IR3] SHL 4;< --- for NCDx / NCCx
+        MAC1 = (int)set_mac_flag(1, ((int64_t)RGBC.r * IR[1]) << 4);
+        MAC2 = (int)set_mac_flag(2, ((int64_t)RGBC.g * IR[2]) << 4);
+        MAC3 = (int)set_mac_flag(3, ((int64_t)RGBC.b * IR[3]) << 4);
+
+        interpolate(MAC1, MAC2, MAC3);
+
+        // Color FIFO = [MAC1 / 16, MAC2 / 16, MAC3 / 16, CODE]
+        RGB[0] = RGB[1];
+        RGB[1] = RGB[2];
+
+        RGB[2].r = set_rgb(1, MAC1 >> 4);
+        RGB[2].g = set_rgb(2, MAC2 >> 4);
+        RGB[2].b = set_rgb(3, MAC3 >> 4);
+        RGB[2].c = RGBC.c;
+    }
+}
+
 void GTE::op_sqr()
 {
     MAC1 = (int)set_mac_flag(1, (IR[1] * IR[1]) >> command.sf * 12);
@@ -548,8 +590,75 @@ void GTE::op_sqr()
     IR[3] = set_ir_flag(3, MAC3, command.lm);
 }
 
+void GTE::op_nct()
+{
+    for (int r = 0; r < 3; r++) {
+        MAC1 = (int)(set_mac_flag(1, (long long)LM.v1.x * V[r].x + LM.v1.y * V[r].y + LM.v1.z * V[r].z) >> command.sf * 12);
+        MAC2 = (int)(set_mac_flag(2, (long long)LM.v2.x * V[r].x + LM.v2.y * V[r].y + LM.v2.z * V[r].z) >> command.sf * 12);
+        MAC3 = (int)(set_mac_flag(3, (long long)LM.v3.x * V[r].x + LM.v3.y * V[r].y + LM.v3.z * V[r].z) >> command.sf * 12);
+
+        IR[1] = set_ir_flag(1, MAC1, command.lm);
+        IR[2] = set_ir_flag(2, MAC2, command.lm);
+        IR[3] = set_ir_flag(3, MAC3, command.lm);
+
+        // [IR1, IR2, IR3] = [MAC1, MAC2, MAC3] = (BK * 1000h + LCM * IR) SAR(sf * 12)
+        // WARNING each multiplication can trigger mac flags so the check is needed on each op! Somehow this only affects the color matrix and not the light one
+        MAC1 = (int)(set_mac_flag(1, set_mac_flag(1, set_mac_flag(1, (long long)RBK * 0x1000 + LRGB.v1.x * IR[1]) + (long long)LRGB.v1.y * IR[2]) + (long long)LRGB.v1.z * IR[3]) >> command.sf * 12);
+        MAC2 = (int)(set_mac_flag(2, set_mac_flag(2, set_mac_flag(2, (long long)GBK * 0x1000 + LRGB.v2.x * IR[1]) + (long long)LRGB.v2.y * IR[2]) + (long long)LRGB.v2.z * IR[3]) >> command.sf * 12);
+        MAC3 = (int)(set_mac_flag(3, set_mac_flag(3, set_mac_flag(3, (long long)BBK * 0x1000 + LRGB.v3.x * IR[1]) + (long long)LRGB.v3.y * IR[2]) + (long long)LRGB.v3.z * IR[3]) >> command.sf * 12);
+
+        IR[1] = set_ir_flag(1, MAC1, command.lm);
+        IR[2] = set_ir_flag(2, MAC2, command.lm);
+        IR[3] = set_ir_flag(3, MAC3, command.lm);
+
+        // Color FIFO = [MAC1 / 16, MAC2 / 16, MAC3 / 16, CODE], [IR1, IR2, IR3] = [MAC1, MAC2, MAC3]
+        RGB[0] = RGB[1];
+        RGB[1] = RGB[2];
+
+        RGB[2].r = set_rgb(1, MAC1 >> 4);
+        RGB[2].g = set_rgb(2, MAC2 >> 4);
+        RGB[2].b = set_rgb(3, MAC3 >> 4);
+        RGB[2].c = RGBC.c;
+
+        IR[1] = set_ir_flag(1, MAC1, command.lm);
+        IR[2] = set_ir_flag(2, MAC2, command.lm);
+        IR[3] = set_ir_flag(3, MAC3, command.lm);
+    }
+}
+
 void GTE::op_ncs()
 {
+    int r = 0;
+    MAC1 = (int)(set_mac_flag(1, (long long)LM.v1.x * V[r].x + LM.v1.y * V[r].y + LM.v1.z * V[r].z) >> command.sf * 12);
+    MAC2 = (int)(set_mac_flag(2, (long long)LM.v2.x * V[r].x + LM.v2.y * V[r].y + LM.v2.z * V[r].z) >> command.sf * 12);
+    MAC3 = (int)(set_mac_flag(3, (long long)LM.v3.x * V[r].x + LM.v3.y * V[r].y + LM.v3.z * V[r].z) >> command.sf * 12);
+
+    IR[1] = set_ir_flag(1, MAC1, command.lm);
+    IR[2] = set_ir_flag(2, MAC2, command.lm);
+    IR[3] = set_ir_flag(3, MAC3, command.lm);
+
+    // [IR1, IR2, IR3] = [MAC1, MAC2, MAC3] = (BK * 1000h + LCM * IR) SAR(sf * 12)
+    // WARNING each multiplication can trigger mac flags so the check is needed on each op! Somehow this only affects the color matrix and not the light one
+    MAC1 = (int)(set_mac_flag(1, set_mac_flag(1, set_mac_flag(1, (long long)RBK * 0x1000 + LRGB.v1.x * IR[1]) + (long long)LRGB.v1.y * IR[2]) + (long long)LRGB.v1.z * IR[3]) >> command.sf * 12);
+    MAC2 = (int)(set_mac_flag(2, set_mac_flag(2, set_mac_flag(2, (long long)GBK * 0x1000 + LRGB.v2.x * IR[1]) + (long long)LRGB.v2.y * IR[2]) + (long long)LRGB.v2.z * IR[3]) >> command.sf * 12);
+    MAC3 = (int)(set_mac_flag(3, set_mac_flag(3, set_mac_flag(3, (long long)BBK * 0x1000 + LRGB.v3.x * IR[1]) + (long long)LRGB.v3.y * IR[2]) + (long long)LRGB.v3.z * IR[3]) >> command.sf * 12);
+
+    IR[1] = set_ir_flag(1, MAC1, command.lm);
+    IR[2] = set_ir_flag(2, MAC2, command.lm);
+    IR[3] = set_ir_flag(3, MAC3, command.lm);
+
+    // Color FIFO = [MAC1 / 16, MAC2 / 16, MAC3 / 16, CODE], [IR1, IR2, IR3] = [MAC1, MAC2, MAC3]
+    RGB[0] = RGB[1];
+    RGB[1] = RGB[2];
+
+    RGB[2].r = set_rgb(1, MAC1 >> 4);
+    RGB[2].g = set_rgb(2, MAC2 >> 4);
+    RGB[2].b = set_rgb(3, MAC3 >> 4);
+    RGB[2].c = RGBC.c;
+
+    IR[1] = set_ir_flag(1, MAC1, command.lm);
+    IR[2] = set_ir_flag(2, MAC2, command.lm);
+    IR[3] = set_ir_flag(3, MAC3, command.lm);
 }
 
 void GTE::op_ncds()
@@ -594,6 +703,47 @@ void GTE::op_ncds()
 
 void GTE::op_nccs()
 {
+    int r = 0;
+    MAC1 = (int)(set_mac_flag(1, (int64_t)LM.v1.x * V[r].x + LM.v1.y * V[r].y + LM.v1.z * V[r].z) >> command.sf * 12);
+    MAC2 = (int)(set_mac_flag(2, (int64_t)LM.v2.x * V[r].x + LM.v2.y * V[r].y + LM.v2.z * V[r].z) >> command.sf * 12);
+    MAC3 = (int)(set_mac_flag(3, (int64_t)LM.v3.x * V[r].x + LM.v3.y * V[r].y + LM.v3.z * V[r].z) >> command.sf * 12);
+
+    IR[1] = set_ir_flag(1, MAC1, command.lm);
+    IR[2] = set_ir_flag(2, MAC2, command.lm);
+    IR[3] = set_ir_flag(3, MAC3, command.lm);
+
+    // [IR1, IR2, IR3] = [MAC1, MAC2, MAC3] = (BK * 1000h + LCM * IR) SAR(command.sf * 12)
+    // WARNING each multiplication can trigger mac flags so the check is needed on each op! Somehow this only affects the color matrix and not the light one
+    MAC1 = (int)(set_mac_flag(1, set_mac_flag(1, set_mac_flag(1, (int64_t)RBK * 0x1000 + LRGB.v1.x * IR[1]) + (int64_t)LRGB.v1.y * IR[2]) + (int64_t)LRGB.v1.z * IR[3]) >> command.sf * 12);
+    MAC2 = (int)(set_mac_flag(2, set_mac_flag(2, set_mac_flag(2, (int64_t)GBK * 0x1000 + LRGB.v2.x * IR[1]) + (int64_t)LRGB.v2.y * IR[2]) + (int64_t)LRGB.v2.z * IR[3]) >> command.sf * 12);
+    MAC3 = (int)(set_mac_flag(3, set_mac_flag(3, set_mac_flag(3, (int64_t)BBK * 0x1000 + LRGB.v3.x * IR[1]) + (int64_t)LRGB.v3.y * IR[2]) + (int64_t)LRGB.v3.z * IR[3]) >> command.sf * 12);
+
+    IR[1] = set_ir_flag(1, MAC1, command.lm);
+    IR[2] = set_ir_flag(2, MAC2, command.lm);
+    IR[3] = set_ir_flag(3, MAC3, command.lm);
+
+    // [MAC1, MAC2, MAC3] = [R * IR1, G * IR2, B * IR3] SHL 4;< --- for NCDx / NCCx
+    MAC1 = (int)set_mac_flag(1, (RGBC.r * IR[1]) << 4);
+    MAC2 = (int)set_mac_flag(2, (RGBC.g * IR[2]) << 4);
+    MAC3 = (int)set_mac_flag(3, (RGBC.b * IR[3]) << 4);
+
+    // [MAC1, MAC2, MAC3] = [MAC1, MAC2, MAC3] SAR(command.sf * 12);< --- for NCDx / NCCx
+    MAC1 = (int)set_mac_flag(1, MAC1 >> command.sf * 12);
+    MAC2 = (int)set_mac_flag(2, MAC2 >> command.sf * 12);
+    MAC3 = (int)set_mac_flag(3, MAC3 >> command.sf * 12);
+
+    // Color FIFO = [MAC1 / 16, MAC2 / 16, MAC3 / 16, CODE], [IR1, IR2, IR3] = [MAC1, MAC2, MAC3]
+    RGB[0] = RGB[1];
+    RGB[1] = RGB[2];
+
+    RGB[2].r = set_rgb(1, MAC1 >> 4);
+    RGB[2].g = set_rgb(2, MAC2 >> 4);
+    RGB[2].b = set_rgb(3, MAC3 >> 4);
+    RGB[2].c = RGBC.c;
+
+    IR[1] = set_ir_flag(1, MAC1, command.lm);
+    IR[2] = set_ir_flag(2, MAC2, command.lm);
+    IR[3] = set_ir_flag(3, MAC3, command.lm);
 }
 
 void GTE::op_ncct()
@@ -697,6 +847,9 @@ void GTE::op_avsz3()
 
 void GTE::op_avsz4()
 {
+    long long avsz4 = (long long)ZSF4 * (SZ[0] + SZ[1] + SZ[2] + SZ[3]);
+    MAC0 = set_mac0_flag(avsz4);
+    OTZ = set_sz3_flag(avsz4 >> 12);
 }
 
 void GTE::op_op()

@@ -12,9 +12,9 @@ Timer::Timer(TimerID type, Bus* _bus)
 	target.raw = 0;
 
 	paused = false;
-	one_shot_irq = false;
-	count = 0;
+	already_fired_irq = false;
 
+	count = 0;
 	bus = _bus;
 }
 
@@ -42,11 +42,8 @@ void Timer::write(uint address, uint data)
 		current.raw = 0;
 		mode.raw = data;
 
-		paused = false;
-		one_shot_irq = false;
+		already_fired_irq = false;
 		mode.irq_request = true;
-
-		printf("Update timer sync mode!\n");
 
 		if (mode.sync_enable) {
 			SyncMode sync = get_sync_mode();
@@ -76,25 +73,21 @@ void Timer::fire_irq()
 	else
 		mode.irq_request = false;
 
-	if (mode.irq_repeat_mode == IRQRepeat::OneShot && one_shot_irq)
-		return;
-
-	if (!mode.irq_request) {
-		Interrupt irq = irq_type();
-		bus->irq(irq);
-		one_shot_irq = true;
+	bool trigger = !mode.irq_request;
+	if (mode.irq_repeat_mode == IRQRepeat::OneShot) {
+		if (!already_fired_irq && trigger)
+			already_fired_irq = true;
+		else
+			return;
 	}
-
-	/* Low for only a few cycles. */
+	
 	mode.irq_request = true;
+	Interrupt type = irq_type();
+	bus->irq(type);
 }
 
 void Timer::tick(uint cycles)
 {
-	/* Dont do anything if paused. */
-	if (paused)
-		return;
-
 	/* Get the timer's clock source. */
 	ClockSrc clock_src = get_clock_source();
 
@@ -108,29 +101,27 @@ void Timer::tick(uint cycles)
 	if (timer_id == TimerID::TMR0) {
 		if (mode.sync_enable) {
 			/* Timer is paused. */
-			if (sync == SyncMode::Pause) {
+			if (sync == SyncMode::Pause && in_hblank) {
 				return;
 			}
 			/* Timer must be reset. */
-			else if (sync == SyncMode::Reset) {
+			else if (sync == SyncMode::Reset && in_hblank) {
 				current.raw = 0;
 			}
 			/* Timer must be reset and paused outside of hblank. */
 			else if (sync == SyncMode::ResetPause) {
-				current.raw = 0;
-				if (!in_hblank) return;
+				if (in_hblank) current.raw = 0;
+				else return;
 			}
 			/* Timer is paused until hblank occurs once. */
 			else {
-				if (just_hblank)
-					mode.sync_enable = false;
-				else
-					return;
+				if (!prev_hblank && in_hblank) mode.sync_enable = false;
+				else return;
 			}
 		}
 
 		if (clock_src == ClockSrc::Dotclock) {
-			current.raw += (ushort)(count * 11.0 / 7);
+			current.raw += (ushort)(count * 11 / 7 / dot_div);
 			count = 0;
 		}
 		else {
@@ -141,24 +132,22 @@ void Timer::tick(uint cycles)
 	else if (timer_id == TimerID::TMR1) {
 		if (mode.sync_enable) {
 			/* Timer is paused. */
-			if (sync == SyncMode::Pause) {
+			if (sync == SyncMode::Pause && in_vblank) {
 				return;
 			}
 			/* Timer must be reset. */
-			else if (sync == SyncMode::Reset) {
+			else if (sync == SyncMode::Reset && in_vblank) {
 				current.raw = 0;
 			}
 			/* Timer must be reset and paused outside of vblank. */
 			else if (sync == SyncMode::ResetPause) {
-				current.raw = 0;
-				if (!in_vblank) return;
+				if (in_vblank) current.raw = 0;
+				else return;
 			}
 			/* Timer is paused until vblank occurs once. */
 			else {
-				if (just_vblank)
-					mode.sync_enable = false;
-				else
-					return;
+				if (!prev_vblank && in_vblank) mode.sync_enable = false;
+				else return;
 			}
 		}
 
@@ -186,9 +175,8 @@ void Timer::tick(uint cycles)
 	}
 
 	bool should_irq = false;
-
 	/* If we reached or exceeded the target value. */
-	if (current.value >= target.target) {
+	if (current.raw >= target.target) {
 		mode.reached_target = true;
 
 		if (mode.reset == ResetWhen::Target)
@@ -202,8 +190,8 @@ void Timer::tick(uint cycles)
 	if (current.raw >= 0xffff) {
 		mode.reached_overflow = true;
 
-		if (mode.reset == ResetWhen::Overflow)
-			current.raw = 0;
+		//if (mode.reset == ResetWhen::Overflow)
+		//	current.raw = 0;
 
 		if (mode.irq_when_overflow)
 			should_irq = true;
@@ -215,13 +203,15 @@ void Timer::tick(uint cycles)
 	}
 }
 
-void Timer::gpu_sync(bool hblank, bool vblank)
+void Timer::gpu_sync(GPUSync sync)
 {
-	just_hblank = !in_hblank && hblank;
-	just_vblank = !in_vblank && vblank;
+	prev_hblank = in_hblank;
+	prev_vblank = in_vblank;
 
-	in_hblank = hblank;
-	in_vblank = vblank;
+	in_hblank = sync.hblank;
+	in_vblank = sync.vblank;
+
+	dot_div = sync.dotDiv;
 }
 
 Interrupt Timer::irq_type()

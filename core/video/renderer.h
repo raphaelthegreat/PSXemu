@@ -3,7 +3,7 @@
 #include <video/gpu_core.h>
 #include <GLFW/glfw3.h>
 
-constexpr int MAX_VERTICES = 8192;
+constexpr int MAX_VERTICES = 1024 * 512;
 
 enum class Primitive {
 	Polygon = 0,

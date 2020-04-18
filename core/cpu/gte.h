@@ -137,7 +137,9 @@ public:
 	void op_dcpl();
 	void op_dpcs();
 	void op_intpl();
+	void op_ncdt();
 	void op_sqr();
+	void op_nct();
 	void op_ncs();
 	void op_ncds();
 	void op_nccs(); void op_ncct();

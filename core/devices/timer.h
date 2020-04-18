@@ -1,6 +1,12 @@
 #pragma once
 #include <utility/types.hpp>
 
+struct GPUSync {
+	int dotDiv;
+	bool hblank;
+	bool vblank;
+};
+
 enum class Interrupt {
 	VBLANK = 0,
 	GPU_IRQ = 1,
@@ -103,7 +109,7 @@ public:
 
 	/* Add cycles to the timer. */
 	void tick(uint cycles);
-	void gpu_sync(bool hblank, bool vblank);
+	void gpu_sync(GPUSync sync);
 
 	/* Map timer to interrupt type. */
 	Interrupt irq_type();
@@ -123,10 +129,10 @@ public:
 	CounterControl mode;
 	CounterTarget target;
 
-	bool paused, one_shot_irq;
+	bool paused, already_fired_irq;
 	bool in_hblank, in_vblank;
-	bool just_hblank, just_vblank;
-	uint count;
+	bool prev_hblank, prev_vblank;
+	uint count, dot_div = 0;
 
 	TimerID timer_id;
 	Bus* bus;

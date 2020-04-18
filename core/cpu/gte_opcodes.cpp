@@ -18,4 +18,9 @@ void GTE::register_opcodes()
 	lookup[0x3f] = GTE_BIND(op_ncct);
 	lookup[0x3d] = GTE_BIND(op_gpf);
 	lookup[0x28] = GTE_BIND(op_sqr);
+	lookup[0x2e] = GTE_BIND(op_avsz4);
+	lookup[0x20] = GTE_BIND(op_nct);
+	lookup[0x16] = GTE_BIND(op_ncdt);
+	lookup[0x1b] = GTE_BIND(op_nccs);
+	lookup[0x1e] = GTE_BIND(op_ncs);
 }

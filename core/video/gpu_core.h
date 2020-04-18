@@ -3,6 +3,7 @@
 #include <vector>
 #include <glm/glm.hpp>
 #include <memory/range.h>
+#include <devices/timer.h>
 
 enum TexColors : uint {
     D4bit = 0,
@@ -111,6 +112,8 @@ public:
     glm::ivec2 unpack_point(uint point);
     glm::ivec2 unpack_coord(uint coord);
     
+    GPUSync get_blanks_and_dot();
+
     bool tick(uint cycles);
     ushort hblank_timings();
     ushort lines_per_frame();
@@ -171,6 +174,7 @@ public:
     int height[2] = { 240, 480 };
     int depth[4] = { 4, 8, 16, 0 };
     int width[7] = { 256, 368, 320, 0, 512, 0, 640 };
+    int dotClockDiv[5] = { 10, 8, 5, 4, 7 };
 
     static int command_size[16 * 16];
 

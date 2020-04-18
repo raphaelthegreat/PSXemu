@@ -6,6 +6,7 @@
 #include <tools/debugger.hpp>
 #include <cpu/cache.h>
 #include <video/gpu_core.h>
+#include <devices/timer.h>
 
 enum class ExceptionType {
 	Interrupt = 0x0,
@@ -22,7 +23,8 @@ enum class ExceptionType {
 struct PSEXELoadInfo {
 	uint pc;
 	uint r28;
-	uint r29_r30;
+	uint r29;
+	uint r30;
 };
 
 /* Forward declarations. */
